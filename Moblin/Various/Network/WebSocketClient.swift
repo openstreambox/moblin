@@ -122,7 +122,10 @@ final class WebSocketClient {
         }
         let parameters: NWParameters = url.scheme == "ws" ? .tcp : .tls
         parameters.defaultProtocolStack.applicationProtocols.insert(options, at: 0)
+        #if !targetEnvironment(simulator)
+        // The Simulator's network path has no Wi-Fi interface to pin to.
         parameters.requiredInterfaceType = interfaceType
+        #endif
         return parameters
     }
 
