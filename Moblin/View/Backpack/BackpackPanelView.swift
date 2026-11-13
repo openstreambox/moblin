@@ -178,7 +178,7 @@ private struct BackpackOnAirView: View {
                             .font(.headline)
                     }
                 default:
-                    Text("The backpack is offline")
+                    Text("Can't reach the backpack")
                         .foregroundStyle(.secondary)
                 }
             }
@@ -224,13 +224,13 @@ private struct BackpackPrivacyView: View {
                     Button {
                         model.backpackPrivacy(mode: privacy.mode)
                     } label: {
-                        Label("Back on air in \(seconds)… Stay private", systemImage: "timer")
+                        Label("Showing you in \(seconds)… Stay private", systemImage: "timer")
                     }
                 } else {
                     Button {
                         model.backpackPrivacy(mode: "off")
                     } label: {
-                        Label("Go back live", systemImage: "dot.radiowaves.left.and.right")
+                        Label("Show me again", systemImage: "eye")
                     }
                 }
             }
@@ -415,7 +415,9 @@ private func backpackLevelName(level: String) -> String {
     case "private":
         String(localized: "Private")
     case "handover":
-        String(localized: "Handing over")
+        String(localized: "Moving")
+    case "offline":
+        String(localized: "Offline")
     default:
         String(localized: "Backpack")
     }

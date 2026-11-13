@@ -167,7 +167,7 @@ private struct BackpackPrivacyBannerView: View {
                         model.backpackPrivacy(mode: status.privacy.mode)
                     }
                 } else {
-                    Button("Go back live") {
+                    Button("Show me again") {
                         model.backpackPrivacy(mode: "off")
                     }
                 }
