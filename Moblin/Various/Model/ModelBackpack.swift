@@ -155,13 +155,19 @@ extension Model {
         }
         if previous.show.onAir != status.show.onAir {
             UINotificationFeedbackGenerator().notificationOccurred(.success)
+            // One thing over the camera at a time: the suggestion banner
+            // already says where the stream is, so it replaces the toast.
             if status.show.onAir == "box" {
-                makeToast(title: String(localized: "Live on the backpack"),
-                          subTitle: String(localized: "Your phone is now an extra link and your remote"))
                 backpack.suggestedAppMode = isCompanion() ? nil : .companion
+                if backpack.suggestedAppMode == nil {
+                    makeToast(title: String(localized: "Live on the backpack"),
+                              subTitle: String(localized: "Your phone is now an extra link and your remote"))
+                }
             } else {
-                makeToast(title: String(localized: "Live on your phone"))
                 backpack.suggestedAppMode = isCompanion() ? .streaming : nil
+                if backpack.suggestedAppMode == nil {
+                    makeToast(title: String(localized: "Live on your phone"))
+                }
             }
         }
         if let finding = status.finding, previous.finding?.id != finding.id {
