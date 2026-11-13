@@ -238,7 +238,7 @@ private struct BackpackPrivacyView: View {
             Text("Privacy")
         } footer: {
             Text("Applied on the backpack, so it holds even if your phone disconnects. " +
-                "Going back live takes a deliberate tap and a short countdown.")
+                "Showing you again takes a deliberate tap and a short countdown.")
         }
     }
 }
