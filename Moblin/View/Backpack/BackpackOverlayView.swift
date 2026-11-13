@@ -102,7 +102,7 @@ private struct BackpackMessageBannerView: View {
         let urgent = message.level == "urgent"
         BackpackBannerView(
             systemImage: urgent ? "exclamationmark.bubble.fill" : "bubble.left.fill",
-            tint: urgent ? .red : .orange,
+            tint: urgent ? .red : .primary,
             title: urgent ? "\(message.from) · Urgent" : "\(message.from) · \(message.role)",
             detail: message.alerts > 1 ? String(localized: "Alerted \(message.alerts)×") : nil,
             emphasized: urgent
@@ -156,7 +156,7 @@ private struct BackpackPrivacyBannerView: View {
     let status: BackpackStatus
 
     var body: some View {
-        BackpackBannerView(systemImage: "eye.slash.fill", tint: .purple, title: String(localized: "Private")) {
+        BackpackBannerView(systemImage: "eye.slash.fill", tint: .primary, title: String(localized: "Private")) {
             HStack {
                 Text(status.verdict.line)
                     .font(.subheadline)
@@ -201,7 +201,7 @@ private struct BackpackFindingBannerView: View {
     let finding: BackpackStatus.Finding
 
     var body: some View {
-        BackpackBannerView(systemImage: "exclamationmark.triangle.fill", tint: .yellow, title: status.verdict.line) {
+        BackpackBannerView(systemImage: "exclamationmark.triangle.fill", tint: .primary, title: status.verdict.line) {
             HStack {
                 if let action = finding.actions.first {
                     Button(action.label) {
@@ -238,9 +238,17 @@ struct BackpackOverlayView: View {
         }
     }
 
+    // Calm overlays: at most one banner, highest priority first: message,
+    // mode suggestion, privacy, handover, problem. An unseen urgent message
+    // outranks a newer ping. Only urgent messages get colour and an outline.
+    private func bannerMessage(status: BackpackStatus) -> BackpackStatus.Message? {
+        let unseen = status.messages.filter { !$0.seen }
+        return unseen.first(where: { $0.level == "urgent" }) ?? unseen.last
+    }
+
     @ViewBuilder
     private func banner(status: BackpackStatus) -> some View {
-        if let message = status.messages.last(where: { !$0.seen }) {
+        if let message = bannerMessage(status: status) {
             BackpackMessageBannerView(model: model, message: message)
         } else if let mode = backpack.suggestedAppMode {
             BackpackModeSuggestionView(model: model, backpack: backpack, mode: mode)
