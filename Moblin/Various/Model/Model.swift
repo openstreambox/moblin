@@ -2428,6 +2428,17 @@ final class Model: NSObject, ObservableObject {
         reloadRemoteControlWeb()
         reloadMoblinCloud()
         reloadBackpack()
+        #if DEBUG
+        // For Simulator tests, which can't scan a code or confirm the system's
+        // open-link prompt.
+        if let text = UserDefaults.standard.string(forKey: "DashboardJoinUrl"),
+           !dashboard.debugJoinOpened,
+           let url = URL(string: text)
+        {
+            dashboard.debugJoinOpened = true
+            handleDashboardUrl(url: url)
+        }
+        #endif
         if dashboard.joinLink == nil {
             reloadDashboard()
         }

@@ -18,6 +18,7 @@ class DashboardProvider: ObservableObject {
     var client: DashboardClient?
     var joinLink: DashboardJoinLink?
     var joinNonce = ""
+    var debugJoinOpened = false
 }
 
 extension Model {
