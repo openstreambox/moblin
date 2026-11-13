@@ -58,6 +58,7 @@ struct DashboardMessage: Decodable {
     var role: String?
     var profile: DashboardProfile?
     var reason: String?
+    var buttonSeconds: Int?
 }
 
 func dashboardMatchingCode(invite: String, deviceNonce: String, dashboardNonce: String) -> String {

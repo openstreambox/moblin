@@ -3,7 +3,9 @@ import SwiftUI
 enum DashboardJoinState: Equatable {
     case none
     case connecting
-    case waiting(code: String)
+    // buttonUntil: until then, a double-press on the box's power button
+    // also finishes connecting.
+    case waiting(code: String, buttonUntil: Date?)
     case joined
     case failed(message: String)
 }
@@ -181,9 +183,12 @@ extension Model: DashboardClientDelegate {
                 stopDashboard()
                 return
             }
-            dashboard.joinState = .waiting(code: dashboardMatchingCode(invite: link.invite,
-                                                                       deviceNonce: dashboard.joinNonce,
-                                                                       dashboardNonce: nonce))
+            dashboard.joinState = .waiting(
+                code: dashboardMatchingCode(invite: link.invite,
+                                            deviceNonce: dashboard.joinNonce,
+                                            dashboardNonce: nonce),
+                buttonUntil: message.buttonSeconds.map { Date().addingTimeInterval(Double($0)) }
+            )
         case "joined":
             guard let link = dashboard.joinLink, let token = message.token, let device = message.device else {
                 return
