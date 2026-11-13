@@ -220,6 +220,11 @@ private struct MenuView: View {
                 QuickButtonMacrosView(model: model, macros: model.database.macros)
                     .navigationBarTitleDisplayMode(.inline)
             }
+        case .backpack:
+            NavigationStack {
+                BackpackPanelView(model: model, backpack: model.backpack)
+                    .navigationBarTitleDisplayMode(.inline)
+            }
         case .none:
             EmptyView()
         }
@@ -550,6 +555,8 @@ struct MainView: View {
                 DrawOnStreamView(model: model)
             }
             MutedView(audio: model.audio)
+            CompanionAreaView(model: model, show: model.show)
+            BackpackOverlayView(model: model, backpack: model.backpack, show: model.show)
             PhotoShootView(model: model, photoShoot: model.photoShoot, enabled: model.photoShootEnabled)
             if model.showBrowser {
                 WebBrowserView(model: model,
@@ -685,6 +692,11 @@ struct MainView: View {
             }
             .sheet(isPresented: $model.presentingModeration) {
                 QuickButtonChatModerationView(model: model, presentingModeration: $model.presentingModeration)
+            }
+            .sheet(isPresented: $model.presentingDashboardJoin, onDismiss: {
+                model.closeDashboardJoin()
+            }) {
+                DashboardJoinView(model: model, dashboard: model.dashboard, database: model.database)
             }
             .sheet(isPresented: $model.presentingPredefinedMessages) {
                 PredefinedMessagesView(model: model,

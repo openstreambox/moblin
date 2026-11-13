@@ -1,3 +1,6 @@
+MOBLIN_DISPLAY_NAME = Moblin
+MOBLIN_URL_SCHEME = moblin
+
 #include "User.xcconfig"
 
 MARKETING_VERSION = 35.7.0

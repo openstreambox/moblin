@@ -43,6 +43,7 @@ enum ShowingPanel {
     case streamingButtonSettings
     case live
     case macros
+    case backpack
 
     func buttonsBackgroundColor() -> Color {
         if self == .chat {
@@ -227,6 +228,7 @@ class Bonding: ObservableObject {
 class Show: ObservableObject {
     @Published var cameraPreview = false
     @Published var chatPhone = false
+    @Published var companion = false
 }
 
 @MainActor
@@ -505,6 +507,7 @@ final class Model: NSObject, ObservableObject {
     @Published var showTwitchAuth = false
     @Published var showModerationAuth = false
     @Published var presentingModeration = false
+    @Published var presentingDashboardJoin = false
     @Published var presentingPredefinedMessages: Bool = false
     @Published var presentingSceneEditor: Bool = false
     @Published var presentingSettingsImportConfirmation = false
@@ -588,6 +591,8 @@ final class Model: NSObject, ObservableObject {
     let twitchPoll = TwitchPoll()
     let twitchPrediction = TwitchPrediction()
     let moblink = Moblink()
+    let backpack = BackpackProvider()
+    let dashboard = DashboardProvider()
     let ingests = Ingests()
     let videoSources = VideoSources()
     let bitrate = Bitrate()
@@ -965,6 +970,7 @@ final class Model: NSObject, ObservableObject {
             .autoSceneSwitcher,
             .live,
             .macros,
+            .backpack,
         ].contains(type)
     }
 
@@ -1171,7 +1177,20 @@ final class Model: NSObject, ObservableObject {
         chatActivityFeed.interactiveChat = chat.interactiveChat
         interactiveBrowsers = getQuickButton(type: .interactiveBrowserWidgets)?.isOn ?? false
         _ = updateShowCameraPreview()
+        #if DEBUG
+        if let mode = UserDefaults.standard.string(forKey: "BackpackAppMode"),
+           let appMode = SettingsAppMode(rawValue: mode)
+        {
+            database.appMode = appMode
+        }
+        if let join = UserDefaults.standard.string(forKey: "BackpackJoinUrl"), let url = URL(string: join) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                self.handleDashboardUrl(url: url)
+            }
+        }
+        #endif
         show.chatPhone = isChatPhone()
+        show.companion = isCompanion()
         showChatLabelsForAWhile()
         updateScreenAutoOff()
         setDisplayPortrait(portrait: database.portrait)
@@ -1741,6 +1760,8 @@ final class Model: NSObject, ObservableObject {
         stopWorkoutDevices()
         stopRemoteControlAssistant()
         stopMoblinCloud()
+        stopBackpack()
+        stopDashboard()
         stopHttpProxyServer()
         fixedHorizonEffect.stop()
         cameraLevel.stop()
@@ -2406,6 +2427,10 @@ final class Model: NSObject, ObservableObject {
         reloadRemoteControlRelay()
         reloadRemoteControlWeb()
         reloadMoblinCloud()
+        reloadBackpack()
+        if dashboard.joinLink == nil {
+            reloadDashboard()
+        }
         reloadKickViewers()
         reloadSoopPlatformStatus()
         reloadNtpClient()

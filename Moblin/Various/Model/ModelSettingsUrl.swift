@@ -206,6 +206,14 @@ extension Model {
     }
 
     func handleSettingsUrls(urls: Set<UIOpenURLContext>) {
+        let dashboardUrls = urls.filter { $0.url.scheme == dashboardUrlScheme }
+        for url in dashboardUrls {
+            handleDashboardUrl(url: url.url)
+        }
+        let urls = urls.subtracting(dashboardUrls)
+        guard !urls.isEmpty else {
+            return
+        }
         guard !isLive, !isRecording else {
             makeErrorToast(title: String(localized: "Cannot import settings when live or recording"))
             return

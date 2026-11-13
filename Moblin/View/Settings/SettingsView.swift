@@ -115,6 +115,11 @@ struct SettingsView: View {
                 } label: {
                     Label("Moblink", systemImage: "app.connected.to.app.below.fill")
                 }
+                NavigationLink {
+                    BackpackSettingsView(model: model, backpack: database.backpack)
+                } label: {
+                    Label("Backpack", systemImage: "backpack")
+                }
                 if database.showAllSettings {
                     NavigationLink {
                         MediaPlayersSettingsView(model: model, mediaPlayers: database.mediaPlayers)

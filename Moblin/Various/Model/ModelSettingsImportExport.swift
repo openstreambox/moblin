@@ -80,6 +80,7 @@ extension Model {
         updateMics()
         updateVideoSources()
         show.chatPhone = isChatPhone()
+        show.companion = isCompanion()
         updateScreenAutoOff()
         reloadStream()
         lutUpdated()
