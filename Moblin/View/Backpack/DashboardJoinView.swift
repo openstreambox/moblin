@@ -27,7 +27,7 @@ struct DashboardJoinView: View {
                     Text("Connecting to the dashboard…")
                         .foregroundStyle(.secondary)
                 case let .waiting(code):
-                    Text("Check that the dashboard shows the same code, then approve this phone there.")
+                    Text("Check that the dashboard shows the same code, then tap It matches there.")
                         .multilineTextAlignment(.center)
                     Text(formatted(code: code))
                         .font(.system(size: 54, weight: .bold, design: .monospaced))
@@ -35,14 +35,14 @@ struct DashboardJoinView: View {
                         .lineLimit(1)
                     HStack(spacing: 8) {
                         ProgressView()
-                        Text("Waiting for approval…")
+                        Text("Waiting for the dashboard…")
                     }
                     .foregroundStyle(.secondary)
                 case .joined:
-                    Label("Joined", systemImage: "checkmark.circle.fill")
+                    Label("Connected", systemImage: "checkmark.circle.fill")
                         .font(.title3.bold())
                         .foregroundStyle(.green)
-                    Text("Role: \(database.appMode.toString()). Settings from the dashboard now arrive by themselves.")
+                    Text("This phone is connected as \(database.appMode.toString()). Settings from the dashboard now arrive by themselves.")
                         .multilineTextAlignment(.center)
                     Button {
                         model.closeDashboardJoin()

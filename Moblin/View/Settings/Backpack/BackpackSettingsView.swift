@@ -36,13 +36,13 @@ struct BackpackSettingsView: View {
             }
             Section {
                 if backpack.dashboardToken.isEmpty {
-                    Text("Not joined. On the dashboard, press Add a phone and scan the QR code with the Camera app.")
+                    Text("Not connected. On the dashboard, choose Connect a phone and scan its code with the Camera app.")
                 } else {
                     LabeledContent("Dashboard", value: backpack.dashboardName)
                     Button(role: .destructive) {
                         model.leaveDashboard()
                     } label: {
-                        Text("Leave dashboard")
+                        Text("Disconnect from the dashboard")
                     }
                 }
             } header: {

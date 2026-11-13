@@ -25,7 +25,7 @@ extension Model {
 
     func handleDashboardUrl(url: URL) {
         guard let link = DashboardJoinLink(url: url) else {
-            makeErrorToast(title: String(localized: "This isn't a dashboard QR code"))
+            makeErrorToast(title: String(localized: "This code isn't from an OpenStreamBox dashboard"))
             return
         }
         stopDashboard()
@@ -68,7 +68,7 @@ extension Model {
         dashboard.client?.send(message: ["type": "leave"])
         let name = database.backpack.dashboardName
         forgetDashboard()
-        makeToast(title: String(localized: "Left \(name)"))
+        makeToast(title: String(localized: "Disconnected from \(name)"))
     }
 
     private func forgetDashboard() {
@@ -176,7 +176,7 @@ extension Model: DashboardClientDelegate {
                 return
             }
             guard link.fingerprint.isEmpty || message.fingerprint == link.fingerprint else {
-                dashboard.joinState = .failed(message: String(localized: "This dashboard's key doesn't match the QR code."))
+                dashboard.joinState = .failed(message: String(localized: "This isn't the dashboard the code came from. Nothing was connected."))
                 dashboard.joinLink = nil
                 stopDashboard()
                 return
@@ -200,7 +200,7 @@ extension Model: DashboardClientDelegate {
             }
             storeSettings()
         case "join_rejected":
-            dashboard.joinState = .failed(message: message.reason ?? String(localized: "The dashboard declined this phone."))
+            dashboard.joinState = .failed(message: message.reason ?? String(localized: "The dashboard didn't connect this phone."))
             dashboard.joinLink = nil
             stopDashboard()
         case "profile":
@@ -210,7 +210,7 @@ extension Model: DashboardClientDelegate {
         case "revoked", "hello_rejected":
             let name = database.backpack.dashboardName
             forgetDashboard()
-            makeWarningToast(title: String(localized: "This phone was removed from \(name)"))
+            makeWarningToast(title: String(localized: "This phone was disconnected from \(name)"))
         default:
             break
         }
