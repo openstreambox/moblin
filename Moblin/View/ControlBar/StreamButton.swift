@@ -22,7 +22,10 @@ private struct EndButtonView: View {
     @State private var presentingStopConfirm = false
 
     var body: some View {
-        StreamButtonText(database: model.database, text: String(localized: "End"))
+        // To the rig's hub, ending this phone's stream only disconnects it:
+        // the hub holds the platform output.
+        StreamButtonText(database: model.database,
+                         text: model.isCurrentStreamHub() ? String(localized: "Disconnect") : String(localized: "End"))
             .overlay(
                 RoundedRectangle(cornerRadius: 10)
                     .stroke(.white)
@@ -38,8 +41,17 @@ private struct EndButtonView: View {
                     model.sendGoLiveNotification()
                 }
             }
-            .confirmationDialog("", isPresented: $presentingStopConfirm) {
-                if model.stream.obsAutoStopStream, model.stream.obsAutoStopRecording {
+            .confirmationDialog(model.isCurrentStreamHub() && model.hubProgramIsThisPhone()
+                ? String(localized: "Viewers see this phone right now. If it disconnects, the hub shows its standby picture and stays live.")
+                : "",
+                isPresented: $presentingStopConfirm,
+                titleVisibility: model.isCurrentStreamHub() && model.hubProgramIsThisPhone() ? .visible : .hidden)
+            {
+                if model.isCurrentStreamHub() {
+                    Button("Disconnect this phone") {
+                        _ = model.stopStream()
+                    }
+                } else if model.stream.obsAutoStopStream, model.stream.obsAutoStopRecording {
                     Button("End but leave OBS streaming and recording") {
                         _ = model.stopStream(stopObsStreamIfEnabled: false, stopObsRecordingIfEnabled: false)
                     }
@@ -52,8 +64,10 @@ private struct EndButtonView: View {
                         _ = model.stopStream(stopObsRecordingIfEnabled: false)
                     }
                 }
-                Button("End") {
-                    _ = model.stopStream()
+                if !model.isCurrentStreamHub() {
+                    Button("End") {
+                        _ = model.stopStream()
+                    }
                 }
             }
     }
@@ -65,9 +79,15 @@ private struct GoLiveButtonView: View {
     @State private var presentingGoLiveConfirm = false
 
     var body: some View {
-        StreamButtonText(database: model.database, text: String(localized: "Go Live"))
+        StreamButtonText(database: model.database,
+                         text: model.isCurrentStreamHub() ? String(localized: "Connect") : String(localized: "Go Live"))
             .onTapGesture {
-                presentingGoLiveConfirm = true
+                if model.isCurrentStreamHub() {
+                    // Connecting to the rig's hub isn't going live: viewers see nothing new.
+                    model.hubConnect()
+                } else {
+                    presentingGoLiveConfirm = true
+                }
             }
             .onLongPressGesture {
                 model.toggleShowingPanel(type: nil, panel: .streamingButtonSettings)

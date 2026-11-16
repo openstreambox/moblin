@@ -1294,6 +1294,7 @@ class Database: Codable, ObservableObject {
     var remoteControl: SettingsRemoteControl = .init()
     var moblinCloud: SettingsMoblinCloud = .init()
     var backpack: SettingsBackpack = .init()
+    var hub: SettingsHub = .init()
     @Published var startStopRecordingConfirmations: Bool = true
     var color: SettingsColor = .init()
     @Published var mirrorFrontCameraOnStream: Bool = true
@@ -1424,6 +1425,7 @@ class Database: Codable, ObservableObject {
         case remoteControl
         case moblinCloud
         case backpack
+        case hub
         case startStopRecordingConfirmations
         case color
         case mirrorFrontCameraOnStream
@@ -1520,6 +1522,7 @@ class Database: Codable, ObservableObject {
         try container.encode(.remoteControl, remoteControl)
         try container.encode(.moblinCloud, moblinCloud)
         try container.encode(.backpack, backpack)
+        try container.encode(.hub, hub)
         try container.encode(.startStopRecordingConfirmations, startStopRecordingConfirmations)
         try container.encode(.color, color)
         try container.encode(.mirrorFrontCameraOnStream, mirrorFrontCameraOnStream)
@@ -1626,6 +1629,7 @@ class Database: Codable, ObservableObject {
         remoteControl = container.decode(.remoteControl, SettingsRemoteControl.self, .init())
         moblinCloud = container.decode(.moblinCloud, SettingsMoblinCloud.self, .init())
         backpack = container.decode(.backpack, SettingsBackpack.self, .init())
+        hub = container.decode(.hub, SettingsHub.self, .init())
         startStopRecordingConfirmations = container.decode(.startStopRecordingConfirmations, Bool.self, true)
         color = container.decode(.color, SettingsColor.self, .init())
         mirrorFrontCameraOnStream = container.decode(.mirrorFrontCameraOnStream, Bool.self, true)
@@ -1951,6 +1955,11 @@ private func addMissingQuickButtonsPageOne(database: Database) {
     button = SettingsQuickButton(type: .backpack,
                                  imageOn: "backpack.fill",
                                  imageOff: "backpack",
+                                 page: page)
+    updateQuickButton(database: database, button: button)
+    button = SettingsQuickButton(type: .rig,
+                                 imageOn: "point.3.filled.connected.trianglepath.dotted",
+                                 imageOff: "point.3.connected.trianglepath.dotted",
                                  page: page)
     updateQuickButton(database: database, button: button)
 }

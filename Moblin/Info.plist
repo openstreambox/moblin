@@ -39,6 +39,16 @@
 				<string>openstreambox</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>openstreambox.hub</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>osb-hub</string>
+			</array>
+		</dict>
 	</array>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>

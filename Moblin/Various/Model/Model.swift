@@ -44,6 +44,7 @@ enum ShowingPanel {
     case live
     case macros
     case backpack
+    case rig
 
     func buttonsBackgroundColor() -> Color {
         if self == .chat {
@@ -508,6 +509,7 @@ final class Model: NSObject, ObservableObject {
     @Published var showModerationAuth = false
     @Published var presentingModeration = false
     @Published var presentingDashboardJoin = false
+    @Published var presentingHubJoin = false
     @Published var presentingPredefinedMessages: Bool = false
     @Published var presentingSceneEditor: Bool = false
     @Published var presentingSettingsImportConfirmation = false
@@ -593,6 +595,7 @@ final class Model: NSObject, ObservableObject {
     let moblink = Moblink()
     let backpack = BackpackProvider()
     let dashboard = DashboardProvider()
+    let hub = HubProvider()
     let ingests = Ingests()
     let videoSources = VideoSources()
     let bitrate = Bitrate()
@@ -971,6 +974,7 @@ final class Model: NSObject, ObservableObject {
             .live,
             .macros,
             .backpack,
+            .rig,
         ].contains(type)
     }
 
@@ -1762,6 +1766,7 @@ final class Model: NSObject, ObservableObject {
         stopMoblinCloud()
         stopBackpack()
         stopDashboard()
+        stopHub()
         stopHttpProxyServer()
         fixedHorizonEffect.stop()
         cameraLevel.stop()
@@ -2442,6 +2447,10 @@ final class Model: NSObject, ObservableObject {
         if dashboard.joinLink == nil {
             reloadDashboard()
         }
+        #if DEBUG
+        handleDebugHubJoinUrl()
+        #endif
+        reloadHub()
         reloadKickViewers()
         reloadSoopPlatformStatus()
         reloadNtpClient()

@@ -120,6 +120,11 @@ struct SettingsView: View {
                 } label: {
                     Label("Backpack", systemImage: "backpack")
                 }
+                NavigationLink {
+                    HubPanelView(model: model, hub: model.hub, settings: database.hub)
+                } label: {
+                    Label("Rig", systemImage: "point.3.connected.trianglepath.dotted")
+                }
                 if database.showAllSettings {
                     NavigationLink {
                         MediaPlayersSettingsView(model: model, mediaPlayers: database.mediaPlayers)

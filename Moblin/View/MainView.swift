@@ -225,6 +225,11 @@ private struct MenuView: View {
                 BackpackPanelView(model: model, backpack: model.backpack)
                     .navigationBarTitleDisplayMode(.inline)
             }
+        case .rig:
+            NavigationStack {
+                HubPanelView(model: model, hub: model.hub, settings: model.database.hub)
+                    .navigationBarTitleDisplayMode(.inline)
+            }
         case .none:
             EmptyView()
         }
@@ -697,6 +702,11 @@ struct MainView: View {
                 model.closeDashboardJoin()
             }) {
                 DashboardJoinView(model: model, dashboard: model.dashboard, database: model.database)
+            }
+            .sheet(isPresented: $model.presentingHubJoin, onDismiss: {
+                model.closeHubJoin()
+            }) {
+                HubJoinView(model: model, hub: model.hub)
             }
             .sheet(isPresented: $model.presentingPredefinedMessages) {
                 PredefinedMessagesView(model: model,

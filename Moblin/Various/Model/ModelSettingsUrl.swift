@@ -210,7 +210,11 @@ extension Model {
         for url in dashboardUrls {
             handleDashboardUrl(url: url.url)
         }
-        let urls = urls.subtracting(dashboardUrls)
+        let hubUrls = urls.filter { $0.url.scheme == hubJoinScheme }
+        for url in hubUrls {
+            handleHubUrl(url: url.url)
+        }
+        let urls = urls.subtracting(dashboardUrls).subtracting(hubUrls)
         guard !urls.isEmpty else {
             return
         }
