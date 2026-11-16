@@ -137,7 +137,7 @@ extension Model {
     }
 
     private func sendBackpackCommand(command: String, arguments: [String: String] = [:]) {
-        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        hapticTap()
         backpack.client?.send(command: command, arguments: arguments)
     }
 
@@ -154,7 +154,7 @@ extension Model {
             return
         }
         if previous.show.onAir != status.show.onAir {
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            hapticNotification(.success)
             // One thing over the camera at a time: the suggestion banner
             // already says where the stream is, so it replaces the toast.
             if status.show.onAir == "box" {
@@ -171,7 +171,7 @@ extension Model {
             }
         }
         if let finding = status.finding, previous.finding?.id != finding.id {
-            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            hapticNotification(.warning)
         }
         if status.lessons.filter({ !$0.read }).count > previous.lessons.filter({ !$0.read }).count {
             makeToast(title: String(localized: "Something to learn after the stream"),
@@ -180,7 +180,7 @@ extension Model {
     }
 
     private func announceBackpackMessage(message: BackpackStatus.Message) {
-        UINotificationFeedbackGenerator().notificationOccurred(message.level == "urgent" ? .error : .warning)
+        hapticNotification(message.level == "urgent" ? .error : .warning)
         guard database.backpack.readAloud else {
             return
         }

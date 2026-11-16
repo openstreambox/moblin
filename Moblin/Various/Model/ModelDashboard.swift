@@ -200,7 +200,7 @@ extension Model: DashboardClientDelegate {
             database.backpack.dashboardDeviceId = device
             dashboard.joinLink = nil
             dashboard.joinState = .joined
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            hapticNotification(.success)
             if let profile = message.profile {
                 applyDashboardProfile(profile: profile, role: message.role, announce: false)
             }
