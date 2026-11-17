@@ -250,6 +250,27 @@ private func showcaseSessionAccess() -> HubAccess? {
     return try? JSONDecoder().decode(HubAccess.self, from: Data(json.utf8))
 }
 
+private func showcaseTakeoverAccess() -> HubAccess? {
+    guard var access = showcaseAccess(variant: "plain", hidden: true) else {
+        return nil
+    }
+    for index in access.grants.indices where ["dev-box", "dev-kim"].contains(access.grants[index].id) {
+        access.grants[index].state = "waiting"
+        access.grants[index].wasIn = true
+        access.grants[index].online = true
+        access.grants[index].can = ["allow", "end"]
+    }
+    let json = """
+    [{"seq":21,"at":"\(iso(-2))","type":"hub.moved","detail":{"epoch":1000,"takeover":true,"agreed":false,
+    "gap_ms":40000,"to_confirm":3}},
+    {"seq":20,"at":"\(iso(-12))","type":"device.removed","by":{"kind":"device","id":"dev-desk","name":"Mac",
+    "role":"admin"},"subject":{"kind":"device","id":"dev-lee","name":"Lee's phone","role":"helper"}}]
+    """
+    access.trail = ((try? JSONDecoder().decode([HubTrailEntry].self, from: Data(json.utf8))) ?? []) + access.trail
+    access.stream.hidden = true
+    return access
+}
+
 private let showcaseHelperLink = "osb-hub://join#v=1&h=wss%3A%2F%2Fhub.example.org%2Fhub%2Fv1"
     + "&t=ABEiM0RVZneImaq7zN3u_w&fp=GutExPD1wgwE4-X9a6juTfKMUfAitOFU-7m7OqcTU7A&n=Studio+hub"
 
@@ -445,6 +466,15 @@ extension Model {
         case "access-unreachable":
             hub.connected = false
             screens = [.access]
+        case "access-takeover", "owner-takeover":
+            state.session.privacy = HubPrivacy(hidden: true, generation: 5)
+            state.devices[2].allowed = false
+            state.devices[2].recheck = true
+            state.devices.append(HubDevice(id: "dev-box", name: "Backpack", kind: "box", role: "member",
+                                           allowed: false, online: true, feed: true, recheck: true))
+            state.devices.append(waiting)
+            hub.access = showcaseTakeoverAccess()
+            screens = name == "access-takeover" ? [.access] : []
         default:
             return false
         }
@@ -611,6 +641,9 @@ extension Model {
         hub.handWait = .halfHour
         hub.showcaseSection = nil
         hub.path = []
+        hub.recheck = false
+        hub.stayedLine = nil
+        hub.allowAllSaid = []
         database.hub = SettingsHub()
         let filled = [String(localized: "Stream to the hub, bonded"), String(localized: "Selected as your stream")]
         switch name {
@@ -621,6 +654,25 @@ extension Model {
         case "waiting-allow":
             hubShowcaseJoined()
             hub.pending = true
+        case "takeover-waiting":
+            hubShowcaseJoined()
+            hub.pending = true
+            hub.recheck = true
+        case "takeover-stayed":
+            hubShowcaseJoined()
+            hub.showcaseSending = true
+            hub.state = showcaseState(live: true, program: showcaseMe, hidden: true, feed: "checked", links: 3)
+            hub.stayedLine = HubWords.Takeover.stayed("Desk PC")
+        case "hidden-helper":
+            hubShowcaseJoined()
+            database.hub.role = "helper"
+            hub.showcaseSending = true
+            var state = showcaseState(live: true, program: showcaseMe, hidden: true, feed: "checked", links: 3)
+            state.devices[0].role = "helper"
+            hub.state = state
+        case "hidden-unreachable":
+            hubShowcaseJoined(connected: false)
+            hub.state = showcaseState(live: true, program: showcaseMe, hidden: true, feed: "checked", links: 3)
         case "ready":
             hubShowcaseJoined()
             hub.state = showcaseState()

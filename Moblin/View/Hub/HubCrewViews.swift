@@ -4,6 +4,7 @@ struct HubWaitingView: View {
     let model: Model
     @ObservedObject var hub: HubProvider
     let waiting: HubWaiting
+    let filled: Bool
 
     private func ask(_ action: HubAccessAction) {
         hub.accessFailed = nil
@@ -22,7 +23,7 @@ struct HubWaitingView: View {
             } label: {
                 Text(HubWords.Access.allow)
             }
-            .buttonStyle(HubDecisionButtonStyle())
+            .buttonStyle(HubDecisionButtonStyle(filled: filled))
             .accessibilityLabel("\(HubWords.Access.allow): \(waiting.name)")
             .accessibilityHint(waiting.allows)
         }
@@ -388,7 +389,10 @@ struct HubCrewView: View {
             if !page.waiting.isEmpty {
                 Section {
                     ForEach(page.waiting) { waiting in
-                        HubWaitingView(model: model, hub: hub, waiting: waiting)
+                        HubWaitingView(model: model,
+                                       hub: hub,
+                                       waiting: waiting,
+                                       filled: waiting.id == page.waiting.first(where: { $0.allow })?.id)
                             .padding(.vertical, 4)
                             .listRowBackground(HubLook.surface)
                     }
@@ -576,7 +580,7 @@ private struct HubMadeLinkView: View {
                 ShareLink(item: made.link) {
                     Text(HubWords.Crew.share)
                 }
-                .buttonStyle(HubDecisionButtonStyle())
+                .buttonStyle(HubOutlineButtonStyle())
                 .id("share")
                 Button {
                     UIPasteboard.general.string = made.link

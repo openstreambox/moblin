@@ -66,16 +66,24 @@ final class HubConnection {
     }
 
     // Reconnect with this device's own key, against the pinned hub key.
-    static func connect(urls: [URL], key: HubKeyPair, hubKey: Data) async throws -> HubConnection {
+    static func connect(urls: [URL],
+                        key: HubKeyPair,
+                        hubKey: Data,
+                        hello: [String: Any] = ["v": 1],
+                        refusalCounts: (URL) -> Bool = { _ in true }) async throws -> HubConnection
+    {
         var lastError: any Error = HubConnectionError.invalid("no hub address")
         for url in urls {
             let connection = HubConnection(url: url)
             do {
-                try await connection.runConnect(key: key, hubKey: hubKey)
+                try await connection.runConnect(key: key, hubKey: hubKey, hello: hello)
                 return connection
             } catch let error as HubConnectionError where error == .refused {
                 connection.close()
-                throw error
+                if refusalCounts(url) {
+                    throw error
+                }
+                lastError = HubConnectionError.closed(code: 4401)
             } catch {
                 connection.close()
                 lastError = error
@@ -106,7 +114,7 @@ final class HubConnection {
         startReceiving()
     }
 
-    private func runConnect(key: HubKeyPair, hubKey: Data) async throws {
+    private func runConnect(key: HubKeyPair, hubKey: Data, hello: [String: Any]) async throws {
         let handshake = try HubNoiseHandshake(pattern: "IK",
                                               initiator: true,
                                               prologue: hubPrologue,
@@ -114,12 +122,15 @@ final class HubConnection {
                                               rs: hubKey)
         try await withHandshakeTimeout {
             self.task.resume()
-            let first = try handshake.writeMessage(self.json(["v": 1]))
+            let first = try handshake.writeMessage(self.json(hello))
             try await self.task.send(.data(Data([hubModeConnect]) + first))
             _ = try handshake.readMessage(await self.receiveFrame())
             self.hubKey = hubKey
             self.transport = try handshake.split()
             self.welcome = try self.decrypt(await self.receiveFrame())
+        }
+        if welcome.type == "hub.redirect" {
+            throw HubConnectionError.closed(code: 4410)
         }
         startReceiving()
     }

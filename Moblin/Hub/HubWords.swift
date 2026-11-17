@@ -655,6 +655,16 @@ enum HubWords {
                 String(localized: "The stream isn't live. If nobody answers, the handover ends \(when).")
             }
 
+            static let liveNoEnd = String(localized: "The stream is live. If nobody answers, it keeps running.")
+            static let idleNoEnd = String(localized: "The stream isn't live.")
+
+            static func line(live: Bool, endsAt: String?, when: HubWhen) -> String {
+                guard let endsAt else {
+                    return live ? liveNoEnd : idleNoEnd
+                }
+                return live ? self.live(when.text(endsAt)) : idle(when.text(endsAt))
+            }
+
             static let keep = String(localized: "Keep")
             static let endTime = String(localized: "Set an end time")
             static let takeBack = String(localized: "Take back now")
@@ -690,6 +700,81 @@ enum HubWords {
             static let week = String(localized: "In 7 days")
             static let none = String(localized: "No end time")
         }
+    }
+
+    enum Takeover {
+        static let wait = String(localized: "An owner started the hub somewhere else. They have to allow this device again.")
+        static let stayedElsewhere =
+            String(localized: "Your hub now runs on another computer. This device is still in.")
+        static let wasIn = String(localized: "These were in before. Let them back in?")
+        static let allowAll = String(localized: "Allow all")
+        static let removedNone = String(localized: "No device was removed in the last hour.")
+        static let gapMoment =
+            String(localized: "Changes from the last few seconds before your hub went silent may be missing from it.")
+        static let gapUnknown = String(localized: "Some changes may be missing from it.")
+
+        static func stayed(_ host: String) -> String {
+            String(localized: "Your hub now runs on \(host). This device is still in.")
+        }
+
+        static func copy(_ time: String, _ age: String) -> String {
+            String(localized: "The copy there is from \(time), \(age) ago. Anything after that is not in it.")
+        }
+
+        static func gap(_ gap: String) -> String {
+            String(localized: "Changes from up to \(gap) before your hub went silent may be missing from it.")
+        }
+
+        static func removed(_ name: String, _ age: String) -> String {
+            String(localized: "\(name) was removed \(age) ago. It stays out.")
+        }
+
+        static func allowed(_ count: Int) -> String {
+            count == 1 ? String(localized: "1 device is back in.") : String(localized: "\(count) devices are back in.")
+        }
+
+        static func ownYes(_ name: String) -> String {
+            String(localized: "\(name) needs its own Allow in Who has access.")
+        }
+
+        static func age(_ ms: Int64) -> String {
+            let seconds = Int((Double(max(0, ms)) / 1000).rounded())
+            if seconds < 5 {
+                return "a moment"
+            }
+            if seconds < 90 {
+                return "\(seconds) seconds"
+            }
+            let minutes = Int((Double(seconds) / 60).rounded())
+            if minutes < 90 {
+                return "\(minutes) minutes"
+            }
+            let hours = Int((Double(minutes) / 60).rounded())
+            if hours < 48 {
+                return "\(hours) hours"
+            }
+            return "\(Int((Double(hours) / 24).rounded())) days"
+        }
+
+        static func gapLine(_ gapMs: Int64?) -> String {
+            guard let gapMs else {
+                return gapUnknown
+            }
+            return gapMs < 5000 ? gapMoment : gap(age(gapMs))
+        }
+    }
+
+    enum Hide {
+        static let action = String(localized: "HIDE")
+        static let onState = String(localized: "Privacy screen on")
+        static let on = String(localized: "Your privacy screen is on. Viewers don't see you.")
+        static let requested = String(localized: "Hide requested, not confirmed yet")
+        static let helperCantShow = String(localized: "Only the streamer can show the picture again.")
+        static let unreachable = String(localized: "Can't reach your hub right now. HIDE works again once it answers.")
+        static let idle = String(localized: "Covers the picture and the sound for viewers. The stream stays live.")
+        static let idleNotLive = String(localized: "Covers the picture and the sound for viewers.")
+        static let show = String(localized: "Show the picture")
+        static let showLine = String(localized: "Viewers see and hear you again.")
     }
 
     static func duration(_ duration: HubLinkDuration) -> String {

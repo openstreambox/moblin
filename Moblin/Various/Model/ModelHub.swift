@@ -92,6 +92,7 @@ class HubProvider: ObservableObject {
     @Published var accessFailed: String?
     var accessFailedLine = ""
     @Published var accessBusy: Set<String> = []
+    @Published var allowAllSaid: [String] = []
     // The link the hub just made. Shown once, then forgotten.
     @Published var madeLink: HubMadeLink?
     // The screens pushed on top of the panel.
@@ -118,6 +119,11 @@ class HubProvider: ObservableObject {
     @Published var handWait: HubWait = .halfHour
     var accessRefreshTask: Task<Void, Never>?
     var accessRefreshAgain = false
+    var seen: HubSeen? = HubSeenStore.load()
+    var seenSavedAt: Int64 = 0
+    @Published var recheck = false
+    @Published var stayedLine: String?
+    var stayedTimer: Task<Void, Never>?
 
     var isJoining: Bool {
         if case .joining = joinState {
@@ -127,7 +133,11 @@ class HubProvider: ObservableObject {
     }
 
     func status(me: String) -> HubStatus {
-        hubStatus(state: state, me: me, connected: connected, pending: pending)
+        var status = hubStatus(state: state, me: me, connected: connected, pending: pending, recheck: recheck)
+        if connected, !pending {
+            status.note = stayedLine
+        }
+        return status
     }
 }
 
@@ -187,6 +197,19 @@ extension Model {
                            sending: hubIsSending(),
                            requested: hub.requested,
                            now: hub.now())
+    }
+
+    func hubHideNow() -> HubHideControl? {
+        guard !hub.pending else {
+            return nil
+        }
+        let privacy = hubControls(state: hub.state,
+                                  me: database.hub.deviceId,
+                                  role: database.hub.role,
+                                  sending: hubIsSending(),
+                                  requested: hub.connected ? hub.requested : [],
+                                  now: hub.now()).privacy
+        return hubHideControl(privacy, reachable: hub.connected)
     }
 
     // A request is open until the hub's state shows it, or the hub stays
@@ -350,10 +373,23 @@ extension Model {
             forgetHub()
             return
         }
-        let urls = database.hub.urls.compactMap { URL(string: $0) }
+        let settings = database.hub
+        let urls = hubDialList(proven: settings.provenUrl,
+                               join: settings.urls,
+                               hub: settings.hubUrls,
+                               standby: settings.standbyUrls).compactMap { URL(string: $0) }
+        let hello = settings.role == "admin" ? HubSeen.hello(hub.seen, now: hubNowMs()) : ["v": 1]
+        let proven = settings.provenUrl
+        let join = settings.urls
         Task { @MainActor in
             do {
-                let connection = try await HubConnection.connect(urls: urls, key: key, hubKey: hubKey)
+                let connection = try await HubConnection.connect(
+                    urls: urls,
+                    key: key,
+                    hubKey: hubKey,
+                    hello: hello,
+                    refusalCounts: { hubRefusalCounts($0.absoluteString, proven: proven, join: join) }
+                )
                 guard isHubJoined() else {
                     connection.close()
                     return
@@ -420,6 +456,14 @@ extension Model {
             database.hub.role = device.role
         }
         hub.pending = welcome.bool("pending") ?? false
+        hub.recheck = hub.pending && device?.recheck == true
+        if hubTakeoverStayed(before: database.hub.epoch, welcome: welcome) {
+            hubShowStayed(hubTakeoverStayedLine(welcome))
+        }
+        if let url = hub.connection?.url.absoluteString {
+            database.hub.provenUrl = url
+        }
+        hubLearn(welcome)
         if let state = welcome.decode("state", as: HubState.self) {
             hubSetState(state)
         }
@@ -433,6 +477,12 @@ extension Model {
     }
 
     private func handleHubMessage(_ message: HubMessage) {
+        if message.type != "welcome", message.type != "state" {
+            hubHeard()
+        }
+        if message.type == "hub.moving" || message.type == "hub.moved" {
+            hubClearStayed()
+        }
         switch message.type {
         case "welcome":
             // Sent again once an admin allows a phone that joined by link.
@@ -443,6 +493,7 @@ extension Model {
                 makeToast(title: String(localized: "\(database.hub.name) allowed this phone"))
             }
         case "state":
+            hubLearn(message)
             if let state = message.decode("state", as: HubState.self) {
                 hubSetState(state)
             }
@@ -563,6 +614,10 @@ extension Model {
             reloadRemoteControlStreamer()
         }
         database.hub = SettingsHub()
+        hub.seen = nil
+        HubSeenStore.delete()
+        hub.recheck = false
+        hubClearStayed()
         hub.state = nil
         hub.provision = nil
         hub.pending = false

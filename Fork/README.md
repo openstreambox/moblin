@@ -52,8 +52,18 @@ what each control shows are in `Moblin/Hub/HubProtocol.swift`, with tests in
   the hub is Connect and Connected, and changing what viewers see is Move
   stream to phone. While the output is live nothing reads "not live".
 - A status is a shape, a word and a colour together.
-- The decision waiting on a screen is its only filled button. HIDE is a heavy
-  outline in the text colour.
+- Only the primary action is filled: the one thing the screen wants next, at
+  most one per screen. Allow comes first (the first one this phone may give,
+  or Allow all after a takeover), then Connect while it is the next step, then
+  Keep on an owner's ask. Nothing is filled while the output is live or after
+  the stream ended. Move stream to phone, Share and Copy are outlined.
+- HIDE is a heavy outline in the text colour with the crossed-out eye, never
+  filled. It shows the action or the state, never both: once on, it reads
+  "Privacy screen on" with the same eye, and Show the picture is its own
+  outlined button beside it for whoever may show it. Someone who can't toggle
+  it now (a helper while it is on, or anyone while the hub can't hear the
+  phone) sees it disabled, with the reason under it. The app keeps no HIDE to
+  send later, so it never offers one the hub can't hear.
 - A control reads as done only when the hub's state shows it. Until then it
   says what was asked for ("Hide requested, not confirmed yet").
 - Only what the hub reported is listed.
@@ -113,6 +123,30 @@ list and its wording in `Moblin/Hub/HubAccess.swift`.
   hub checks every request itself, and its refusals are said in words.
 - While the privacy screen is on, the status says who asked for it when it
   wasn't this phone.
+
+## When an owner takes the hub over
+
+An owner can start the hub on a paired standby when the computer it ran on is
+gone. The phone takes part without running a takeover itself
+(`Moblin/Hub/HubSeen.swift`, `ModelHubSeen.swift`):
+
+- An owner device keeps what it saw of who may do what: the hub's access
+  counter, when it last heard from it, what the hub said about each standby
+  and the devices removed in the last day (the newest 32), including a removal
+  it sent and the hub hasn't confirmed yet. It keeps this beside the device
+  key, on this device only, and says it in every reconnect, so a standby can
+  tell that its copy is behind and make every device wait for Allow.
+- It keeps the hub's own addresses and its standbys' from the hub's state and
+  tries them after the address that last answered. A standby points it back to
+  the hub; it doesn't follow that (following a moved hub is not built here).
+  Only the address that last answered as the hub may say this phone is out.
+- After a takeover that kept everyone in, the status keeps its line and adds
+  "Your hub now runs on … This device is still in." for two minutes. A device
+  the hub made wait says why: an owner started the hub somewhere else and has
+  to allow it again.
+- Who has access, after a takeover that may have missed something: how much
+  may be missing, who was removed in the last hour (they stay out), and the
+  devices that were in, by name, with Allow all.
 
 The main button follows what the hub reports about this phone, so it reads
 Disconnect whenever the status says the phone is connected.

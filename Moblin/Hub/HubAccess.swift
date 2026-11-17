@@ -153,6 +153,7 @@ struct HubGrant: Codable, Equatable, Identifiable {
     var givenBySession: Bool?
     // Requests that reach less far for this record (a session owner).
     var limits: [String: String]?
+    var wasIn: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -182,6 +183,7 @@ struct HubGrant: Codable, Equatable, Identifiable {
         case handsStream = "hands_stream"
         case givenBySession = "given_by_session"
         case limits
+        case wasIn = "was_in"
     }
 }
 
@@ -244,6 +246,9 @@ struct HubTrailDetail: Codable, Equatable {
     var lines: Int?
     // stream.kept: the end time an owner set with the answer.
     var endTime: String?
+    var takeover: Bool?
+    var agreed: Bool?
+    var gapMs: Int64?
 
     enum CodingKeys: String, CodingKey {
         case via
@@ -263,6 +268,9 @@ struct HubTrailDetail: Codable, Equatable {
         case name
         case lines
         case endTime = "end_time"
+        case takeover
+        case agreed
+        case gapMs = "gap_ms"
     }
 
     init(via: String? = nil,
@@ -302,6 +310,9 @@ struct HubTrailDetail: Codable, Equatable {
         name = try? container.decodeIfPresent(String.self, forKey: .name)
         lines = try? container.decodeIfPresent(Int.self, forKey: .lines)
         endTime = try? container.decodeIfPresent(String.self, forKey: .endTime)
+        takeover = try? container.decodeIfPresent(Bool.self, forKey: .takeover)
+        agreed = try? container.decodeIfPresent(Bool.self, forKey: .agreed)
+        gapMs = try? container.decodeIfPresent(Int64.self, forKey: .gapMs)
     }
 }
 
@@ -1113,7 +1124,8 @@ enum HubEndTime: String, CaseIterable, Identifiable {
         }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return ["end_time": formatter.string(from: now.addingTimeInterval(seconds))]
+        let margin: TimeInterval = self == .week ? 60 : 0
+        return ["end_time": formatter.string(from: now.addingTimeInterval(seconds - margin))]
     }
 
     // The five, and No end time while one is set.
@@ -1168,8 +1180,7 @@ func hubHandoverAsk(_ run: HubRunBy,
     return HubHandoverAsk(title: run.forName?.isEmpty == false ? HubWords.Access.Ask.title(run.forName!)
                               : HubWords.Access.Ask.titleDevice(device),
                           since: run.givenAt.map { HubWords.Access.Ask.since(when.text($0)) },
-                          line: live ? HubWords.Access.Ask.live(when.text(run.endsAt))
-                              : HubWords.Access.Ask.idle(when.text(run.endsAt)),
+                          line: HubWords.Access.Ask.line(live: live, endsAt: run.endsAt, when: when),
                           filled: filled)
 }
 
@@ -1233,6 +1244,70 @@ struct HubAccessPage: Equatable {
     // False while the hub is out of reach: the list is the last one seen,
     // and nothing on it can be pressed.
     let current: Bool
+    var takeover: HubTakeoverWaiting?
+    var primaryAllow: String?
+}
+
+struct HubTakeoverWaiting: Equatable {
+    let lines: [String]
+    let allowAll: [HubWaitingName]
+}
+
+struct HubWaitingName: Equatable, Identifiable {
+    let id: String
+    let name: String
+}
+
+func hubRemovedRecently(trail: [HubTrailEntry], seen: HubSeen?, now: Date) -> [(name: String, agoMs: Int64)] {
+    let nowMs = Int64((now.timeIntervalSince1970 * 1000).rounded())
+    var out: [(id: String, name: String, agoMs: Int64)] = []
+    for entry in trail where entry.type == "device.removed" {
+        guard let subject = entry.subject, let at = HubWhen.date(entry.at) else {
+            continue
+        }
+        let ago = Int64((now.timeIntervalSince(at) * 1000).rounded())
+        if ago >= 0, ago < 3_600_000 {
+            out.append((id: subject.id, name: subject.name.isEmpty ? subject.id : subject.name, agoMs: ago))
+        }
+    }
+    let known = Set(out.map(\.id))
+    for removal in seen?.removed ?? [] where removal.accessSeq != nil && !known.contains(removal.device) {
+        let ago = max(0, nowMs - removal.at)
+        if ago < 3_600_000 {
+            out.append((id: removal.device,
+                        name: removal.name?.isEmpty == false ? removal.name! : removal.device,
+                        agoMs: ago))
+        }
+    }
+    return out.sorted { $0.agoMs < $1.agoMs }.map { (name: $0.name, agoMs: $0.agoMs) }
+}
+
+func hubTakeoverWaiting(_ access: HubAccess,
+                        rows: [HubAccessRow],
+                        seen: HubSeen?,
+                        now: Date) -> HubTakeoverWaiting?
+{
+    let wasIn = access.grants.filter { $0.kind == "device" && $0.state == "waiting" && $0.wasIn == true }
+    guard !wasIn.isEmpty else {
+        return nil
+    }
+    var lines: [String] = []
+    let trail = access.trail.sorted { $0.seq > $1.seq }
+    if let moved = trail.first(where: { $0.type == "hub.moved" && $0.detail?.takeover == true }),
+       moved.detail?.agreed != true
+    {
+        lines.append(HubWords.Takeover.gapLine(moved.detail?.gapMs))
+    }
+    let removed = hubRemovedRecently(trail: trail, seen: seen, now: now)
+    if removed.isEmpty {
+        lines.append(HubWords.Takeover.removedNone)
+    } else {
+        lines += removed.map { HubWords.Takeover.removed($0.name, HubWords.Takeover.age($0.agoMs)) }
+    }
+    let back = wasIn.compactMap { grant in
+        rows.first { $0.id == grant.id && $0.allow && $0.allowConfirm == nil }
+    }.map { HubWaitingName(id: $0.id, name: $0.name) }
+    return HubTakeoverWaiting(lines: lines, allowAll: back.count > 1 ? back : [])
 }
 
 private func count(_ number: Int, _ one: String, _ many: String) -> String {
@@ -1246,6 +1321,7 @@ func hubAccessPage(_ access: HubAccess?,
                    connected: Bool,
                    older: [HubTrailEntry] = [],
                    more: Bool? = nil,
+                   seen: HubSeen? = nil,
                    when: HubWhen) -> HubAccessPage?
 {
     guard let access else {
@@ -1372,8 +1448,9 @@ func hubAccessPage(_ access: HubAccess?,
         kind = .ready
         word = HubWords.Access.streamReady
     }
-    var seen = Set<Int>()
-    let entries = (access.trail + older).filter { seen.insert($0.seq).inserted }
+    var seqs = Set<Int>()
+    let entries = (access.trail + older).filter { seqs.insert($0.seq).inserted }
+    let takeover = hubTakeoverWaiting(access, rows: waiting, seen: seen, now: when.now)
     return HubAccessPage(kind: connected ? kind : .unknown,
                          label: connected ? "\(access.hub) · \(word)"
                              : "\(access.hub) · \(HubWords.Access.unknownTitle)",
@@ -1386,7 +1463,10 @@ func hubAccessPage(_ access: HubAccess?,
                          },
                          more: more ?? access.trailMore ?? false,
                          clear: access.can?.contains("clear_trail") == true && !entries.isEmpty,
-                         current: connected)
+                         current: connected,
+                         takeover: takeover,
+                         primaryAllow: takeover?.allowAll.isEmpty == false ? nil
+                             : sections.flatMap(\.rows).first(where: { $0.allow })?.id)
 }
 
 // A device that joined by link and waits for an owner's Allow, from the

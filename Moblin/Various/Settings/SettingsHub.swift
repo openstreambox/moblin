@@ -13,6 +13,10 @@ class SettingsHub: Codable, ObservableObject {
     // The Moblin stream the hub's provision went into.
     var streamId: UUID?
     var remoteControlSet: Bool = false
+    var hubUrls: [String] = []
+    var standbyUrls: [String] = []
+    var provenUrl: String = ""
+    var epoch: Int?
 
     init() {}
 
@@ -24,6 +28,10 @@ class SettingsHub: Codable, ObservableObject {
         case role
         case streamId
         case remoteControlSet
+        case hubUrls
+        case standbyUrls
+        case provenUrl
+        case epoch
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -35,6 +43,10 @@ class SettingsHub: Codable, ObservableObject {
         try container.encode(.role, role)
         try container.encode(.streamId, streamId)
         try container.encode(.remoteControlSet, remoteControlSet)
+        try container.encode(.hubUrls, hubUrls)
+        try container.encode(.standbyUrls, standbyUrls)
+        try container.encode(.provenUrl, provenUrl)
+        try container.encode(.epoch, epoch)
     }
 
     required init(from decoder: any Decoder) throws {
@@ -46,6 +58,10 @@ class SettingsHub: Codable, ObservableObject {
         role = container.decode(.role, String.self, "")
         streamId = container.decode(.streamId, UUID?.self, nil)
         remoteControlSet = container.decode(.remoteControlSet, Bool.self, false)
+        hubUrls = container.decode(.hubUrls, [String].self, [])
+        standbyUrls = container.decode(.standbyUrls, [String].self, [])
+        provenUrl = container.decode(.provenUrl, String.self, "")
+        epoch = container.decode(.epoch, Int?.self, nil)
     }
 
     func isJoined() -> Bool {

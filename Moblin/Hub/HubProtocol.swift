@@ -39,6 +39,7 @@ struct HubDevice: Codable, Equatable {
     var online: Bool?
     var feed: Bool?
     var runsStream: Bool?
+    var recheck: Bool?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -49,6 +50,7 @@ struct HubDevice: Codable, Equatable {
         case online
         case feed
         case runsStream = "runs_stream"
+        case recheck
     }
 }
 
@@ -155,8 +157,7 @@ func hubRunEndLine(_ state: HubState?, me: String?, ending: HubEnding?, when: Hu
     if let ending, ending.endsAt == endsAt {
         return HubWords.Crew.ending(ending.why, live: ending.live, when.text(endsAt))
     }
-    // While it waits for Go live, the whole wait says by when.
-    if run.waitUntil != nil || run.endsWhy == "not_live" {
+    if run.endsWhy == "not_live" || (run.waitUntil != nil && run.endsWhy != "time") {
         return HubWords.Crew.ending("not_live", live: false, when.text(endsAt))
     }
     if end.timeIntervalSince(when.now) <= hubEndingSoon || run.endsWhy == "time" {
@@ -354,6 +355,7 @@ struct HubStatus: Equatable {
     var phone: String?
     // The same, short, for the one line over the camera.
     var phoneBrief: String?
+    var note: String?
 
     // The one line over the camera.
     var text: String {
@@ -362,7 +364,7 @@ struct HubStatus: Equatable {
 
     // Read by VoiceOver as one sentence group.
     var spoken: String {
-        [title, line, phone].compactMap { $0 }.joined(separator: ". ")
+        [title, line, phone, note].compactMap { $0 }.joined(separator: ". ")
     }
 }
 
@@ -472,11 +474,11 @@ func hubHiddenByLine(_ privacy: HubPrivacy, me: String?) -> String? {
 
 // The status. "Live" is only ever said for the hub's platform output; while
 // it is live, nothing here reads as if it weren't.
-func hubStatus(state: HubState?, me: String?, connected: Bool, pending: Bool) -> HubStatus {
+func hubStatus(state: HubState?, me: String?, connected: Bool, pending: Bool, recheck: Bool = false) -> HubStatus {
     if pending {
         return HubStatus(kind: .ready,
                          title: String(localized: "Waiting for Allow"),
-                         line: HubWords.Setup.waitingLine)
+                         line: recheck ? HubWords.Takeover.wait : HubWords.Setup.waitingLine)
     }
     guard connected, let state else {
         return HubStatus(kind: .unknown,
@@ -690,4 +692,63 @@ func hubControls(state: HubState?,
         controls.privacy = requested.contains(.hide) ? .hideRequested : .hide
     }
     return controls
+}
+
+struct HubHideControl: Equatable {
+    enum Face: Equatable {
+        case action
+        case state
+    }
+
+    enum Show: Equatable {
+        case offer(generation: Int)
+        case requested
+        case unreachable
+    }
+
+    let face: Face
+    let pressable: Bool
+    let disabled: Bool
+    var requested = false
+    var reason: String?
+    var show: Show?
+
+    var word: String {
+        face == .action ? HubWords.Hide.action : HubWords.Hide.onState
+    }
+}
+
+func hubHideControl(_ privacy: HubPrivacyControl?, reachable: Bool) -> HubHideControl? {
+    switch privacy {
+    case nil:
+        return nil
+    case .hide:
+        return HubHideControl(face: .action,
+                              pressable: reachable,
+                              disabled: !reachable,
+                              reason: reachable ? nil : HubWords.Hide.unreachable)
+    case .hideRequested:
+        return HubHideControl(face: .action, pressable: false, disabled: false, requested: true)
+    case let .hidden(generation, canShow):
+        if !canShow {
+            return HubHideControl(face: .state, pressable: false, disabled: true, reason: HubWords.Hide.helperCantShow)
+        }
+        if !reachable {
+            return HubHideControl(face: .state,
+                                  pressable: false,
+                                  disabled: true,
+                                  reason: HubWords.Hide.unreachable,
+                                  show: .unreachable)
+        }
+        return HubHideControl(face: .state, pressable: false, disabled: false, show: .offer(generation: generation))
+    case .showRequested:
+        return HubHideControl(face: .state, pressable: false, disabled: false, show: .requested)
+    }
+}
+
+func hubConnectIsPrimary(_ state: HubState?, allowWaits: Bool) -> Bool {
+    guard let state, !allowWaits, !state.isLive else {
+        return false
+    }
+    return state.session.live == "ready"
 }
