@@ -84,6 +84,7 @@ struct SettingsView: View {
                     Label("Location", systemImage: "location")
                 }
             }
+            #if !MOBLIN_HIDE_STORE
             Section {
                 NavigationLink {
                     StoreSettingsView(model: model, store: model.store)
@@ -95,6 +96,7 @@ struct SettingsView: View {
                     }
                 }
             }
+            #endif
             Section {
                 if database.showAllSettings {
                     NavigationLink {
@@ -178,6 +180,7 @@ struct SettingsView: View {
                     } label: {
                         Label("Remote control", systemImage: "appletvremote.gen1")
                     }
+                    #if !MOBLIN_HIDE_MOBLIN_SERVICES
                     if !isMac() {
                         NavigationLink {
                             MoblinCloudSettingsView(
@@ -189,6 +192,7 @@ struct SettingsView: View {
                             Label("Moblin Cloud", systemImage: "cloud")
                         }
                     }
+                    #endif
                 }
                 Section {
                     NavigationLink {
@@ -248,11 +252,13 @@ struct SettingsView: View {
                 }
             }
             Section {
+                #if !MOBLIN_HIDE_MOBLIN_SERVICES
                 NavigationLink {
                     HelpAndSupportSettingsView()
                 } label: {
                     Label("Help and support", systemImage: "questionmark.circle")
                 }
+                #endif
                 if database.showAllSettings {
                     NavigationLink {
                         AboutSettingsView()

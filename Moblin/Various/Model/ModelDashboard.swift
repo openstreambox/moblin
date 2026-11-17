@@ -152,7 +152,7 @@ extension Model: DashboardClientDelegate {
                 "name": UIDevice.current.name,
                 "model": UIDevice.current.model,
                 "role": role,
-                "app": "Moblin \(appVersion())",
+                "app": "\(appDisplayName()) \(appVersion())",
             ])
         } else {
             dashboard.client?.send(message: [
@@ -160,7 +160,7 @@ extension Model: DashboardClientDelegate {
                 "device": database.backpack.dashboardDeviceId,
                 "token": database.backpack.dashboardToken,
                 "role": role,
-                "app": "Moblin \(appVersion())",
+                "app": "\(appDisplayName()) \(appVersion())",
             ])
         }
     }

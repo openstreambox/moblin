@@ -599,6 +599,7 @@ struct RemoteControlSettingsView: View {
                             model: model,
                             remoteControlSettings: database.remoteControl
                         )
+                        #if !MOBLIN_HIDE_MOBLIN_SERVICES
                         Section {
                             ExternalUrlButtonView(
                                 url: "https://moblin.mys-lang.org/moblin-remote-control-relay/assistant.html"
@@ -613,6 +614,7 @@ struct RemoteControlSettingsView: View {
                         } footer: {
                             Text("Alternatively, use a website as assistant.")
                         }
+                        #endif
                     }
                     .navigationTitle("Assistant")
                 } label: {

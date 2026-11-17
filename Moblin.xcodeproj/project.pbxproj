@@ -466,6 +466,7 @@
 				035E9E2F2A9A02D6009D4F5A /* Sources */,
 				035E9E302A9A02D6009D4F5A /* Frameworks */,
 				035E9E312A9A02D6009D4F5A /* Resources */,
+				03FA0001000000000000FA01 /* Rename app */,
 				03ECDF572B8E4E6000BD920E /* Embed Watch Content */,
 				0312E4382C00F24E00C6F878 /* Embed Foundation Extensions */,
 				03BB0010000000000000BB00 /* Embed PlugIns */,
@@ -785,6 +786,29 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		03FA0001000000000000FA01 /* Rename app */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Rename app";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "/usr/bin/python3 \"$SRCROOT/utils/rename_app.py\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		0312E42A2C00F24E00C6F878 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -885,7 +909,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Moblin Screen Recording/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Moblin;
+				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME)";
 				INFOPLIST_KEY_NSCameraUsageDescription = Yes;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = Yes;
@@ -920,7 +944,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Moblin Screen Recording/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = Moblin;
+				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME)";
 				INFOPLIST_KEY_NSCameraUsageDescription = Yes;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = Yes;
@@ -1107,19 +1131,19 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Moblin uses Apple Music to play music while you stream.";
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Moblin communicates with DJI cameras using Bluetooth.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Moblin live streams video from the camera.";
-				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Moblin uses localhost as input and output to SRT library.";
-				INFOPLIST_KEY_NSLocationUsageDescription = "Moblin can display your location and/or speed on screen and stream.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Moblin can display your location and/or speed on screen and stream.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Moblin live streams audio from the microphone.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Moblin shows selected images as overlays.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Moblin shows selected images as overlays.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Moblin can add transcription to the stream.";
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "$(MOBLIN_DISPLAY_NAME) uses Apple Music to play music while you stream.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "$(MOBLIN_DISPLAY_NAME) communicates with DJI cameras using Bluetooth.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "$(MOBLIN_DISPLAY_NAME) live streams video from the camera.";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "$(MOBLIN_DISPLAY_NAME) uses localhost as input and output to SRT library.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "$(MOBLIN_DISPLAY_NAME) can display your location and/or speed on screen and stream.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "$(MOBLIN_DISPLAY_NAME) can display your location and/or speed on screen and stream.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "$(MOBLIN_DISPLAY_NAME) live streams audio from the microphone.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "$(MOBLIN_DISPLAY_NAME) shows selected images as overlays.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "$(MOBLIN_DISPLAY_NAME) shows selected images as overlays.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "$(MOBLIN_DISPLAY_NAME) can add transcription to the stream.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1176,19 +1200,19 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME)";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.video";
-				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Moblin uses Apple Music to play music while you stream.";
-				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Moblin communicates with DJI cameras using Bluetooth.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "Moblin live streams video from the camera.";
-				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Moblin uses localhost as input and output to SRT library.";
-				INFOPLIST_KEY_NSLocationUsageDescription = "Moblin can display your location and/or speed on screen and stream.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Moblin can display your location and/or speed on screen and stream.";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Moblin live streams audio from the microphone.";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Moblin shows selected images as overlays.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Moblin shows selected images as overlays.";
-				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Moblin can add transcription to the stream.";
+				INFOPLIST_KEY_NSAppleMusicUsageDescription = "$(MOBLIN_DISPLAY_NAME) uses Apple Music to play music while you stream.";
+				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "$(MOBLIN_DISPLAY_NAME) communicates with DJI cameras using Bluetooth.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "$(MOBLIN_DISPLAY_NAME) live streams video from the camera.";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "$(MOBLIN_DISPLAY_NAME) uses localhost as input and output to SRT library.";
+				INFOPLIST_KEY_NSLocationUsageDescription = "$(MOBLIN_DISPLAY_NAME) can display your location and/or speed on screen and stream.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "$(MOBLIN_DISPLAY_NAME) can display your location and/or speed on screen and stream.";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "$(MOBLIN_DISPLAY_NAME) live streams audio from the microphone.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "$(MOBLIN_DISPLAY_NAME) shows selected images as overlays.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "$(MOBLIN_DISPLAY_NAME) shows selected images as overlays.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "$(MOBLIN_DISPLAY_NAME) can add transcription to the stream.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1228,7 +1252,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Moblin Widget/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Moblin Widget";
+				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME) Widget";
 				INFOPLIST_KEY_NSCameraUsageDescription = Yes;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = Yes;
@@ -1264,7 +1288,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Moblin Widget/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Moblin Widget";
+				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME) Widget";
 				INFOPLIST_KEY_NSCameraUsageDescription = Yes;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = Yes;
@@ -1298,7 +1322,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Moblin Live Activity/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Moblin Live Activity";
+				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME) Live Activity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1330,7 +1354,7 @@
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Moblin Live Activity/Info.plist";
-				INFOPLIST_KEY_CFBundleDisplayName = "Moblin Live Activity";
+				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME) Live Activity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -1360,7 +1384,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Moblin Mac";
+				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME) Mac";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = MoblinMacStatusItem;
 				MACOSX_DEPLOYMENT_TARGET = 13.3;
@@ -1384,7 +1408,7 @@
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = "Moblin Mac";
+				INFOPLIST_KEY_CFBundleDisplayName = "$(MOBLIN_DISPLAY_NAME) Mac";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPrincipalClass = MoblinMacStatusItem;
 				MACOSX_DEPLOYMENT_TARGET = 13.3;
@@ -1453,9 +1477,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Moblin Watch/Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = Yes;
-				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Moblin can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = Yes;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = Yes;
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = Yes;
@@ -1492,9 +1516,9 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "Moblin Watch/Info.plist";
 				INFOPLIST_KEY_NSCameraUsageDescription = Yes;
-				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSHealthShareUsageDescription = "Moblin can show your heart rate on stream.";
-				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "Moblin can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
+				INFOPLIST_KEY_NSHealthUpdateUsageDescription = "$(MOBLIN_DISPLAY_NAME) can show your heart rate on stream.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = Yes;
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = Yes;
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = Yes;

@@ -690,11 +690,13 @@ private struct FiltersView: View {
                     FilterToggleView(model: model, filter: .blurFaces, value: $remoteControl.blurFaces)
                     FilterToggleView(model: model, filter: .privacy, value: $remoteControl.privacy)
                     FilterToggleView(model: model, filter: .beauty, value: $remoteControl.beauty)
+                    #if !MOBLIN_HIDE_MASCOT
                     FilterToggleView(
                         model: model,
                         filter: .moblinInMouth,
                         value: $remoteControl.moblinInMouth
                     )
+                    #endif
                     FilterToggleView(model: model, filter: .cameraMan, value: $remoteControl.cameraMan)
                 }
             }

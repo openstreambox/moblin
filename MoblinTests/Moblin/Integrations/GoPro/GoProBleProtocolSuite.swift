@@ -26,7 +26,11 @@ struct GoProBleProtocolSuite {
 
     @Test
     func buildsPairingAndWifiCommands() {
-        #expect(goProPairingCompleteMessage().hexString() == "0301080012064d6f626c696e")
+        let phoneName = Data(appDisplayName().utf8)
+        #expect(
+            goProPairingCompleteMessage().hexString()
+                == "0301080012" + Data([UInt8(phoneName.count)]).hexString() + phoneName.hexString()
+        )
         #expect(
             goProConnectToWifiMessage(ssid: "Moblin", password: "secret").hexString()
                 == "02050a064d6f626c696e12067365637265745001"

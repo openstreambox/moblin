@@ -183,7 +183,7 @@ final class BackpackClient {
 
 extension BackpackClient: WebSocketClientDelegate {
     func webSocketClientConnected(_: WebSocketClient) {
-        send(message: ["type": "hello", "app": "Moblin", "version": appVersion()])
+        send(message: ["type": "hello", "app": appDisplayName(), "version": appVersion()])
         delegate?.backpackClientConnected()
     }
 

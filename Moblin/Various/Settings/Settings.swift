@@ -2225,6 +2225,11 @@ private func addMissingQuickButtons(database: Database) {
         if button.type == .portrait, isMac() {
             return false
         }
+        #if MOBLIN_HIDE_MASCOT
+        if button.type == .moblinInMouth {
+            return false
+        }
+        #endif
         return true
     }
 }

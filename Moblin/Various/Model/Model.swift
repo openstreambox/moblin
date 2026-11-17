@@ -1092,6 +1092,9 @@ final class Model: NSObject, ObservableObject {
     }
 
     private func makeBuyIconsToastIfNeeded() -> Bool {
+        #if MOBLIN_HIDE_STORE
+        return false
+        #endif
         if store.hasBoughtSomething {
             return false
         }

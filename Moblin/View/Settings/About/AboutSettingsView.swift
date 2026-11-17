@@ -13,6 +13,7 @@ struct AboutSettingsView: View {
                     Text("Attributions")
                 }
             }
+            #if !MOBLIN_HIDE_MOBLIN_SERVICES
             Section {
                 TextButtonView("Version history") {
                     presentingVersionHistory = true
@@ -32,6 +33,7 @@ struct AboutSettingsView: View {
             ExternalUrlButtonView(url: "https://eerimoq.github.io/moblin/privacy-policy/en.html") {
                 Text("Privacy policy")
             }
+            #endif
             ExternalUrlButtonView(url: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/") {
                 Text("End-user license agreement (EULA)")
             }

@@ -1,6 +1,6 @@
 import SwiftUI
 
-private let defaultDeepLink = "moblin://?{}"
+private let defaultDeepLink = "\(appUrlScheme())://?{}"
 
 struct DeepLinkCreatorSettingsView: View {
     @ObservedObject var deepLinkCreator: DeepLinkCreator
@@ -109,7 +109,7 @@ struct DeepLinkCreatorSettingsView: View {
                 encodedJsonBlob.replace("%5B", with: "[")
                 encodedJsonBlob.replace("%5D", with: "]")
                 encodedJsonBlob.replace("%22", with: "\"")
-                deepLink = "moblin://?\(encodedJsonBlob)"
+                deepLink = "\(appUrlScheme())://?\(encodedJsonBlob)"
             }
         } catch {
             logger.info("Failed to create deep link")

@@ -267,6 +267,18 @@ func appVersion() -> String {
     Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
 }
 
+func appDisplayName() -> String {
+    Bundle.main.infoDictionary?["MoblinDisplayName"] as? String ?? "Moblin"
+}
+
+func appUrlScheme() -> String {
+    Bundle.main.infoDictionary?["MoblinUrlScheme"] as? String ?? "moblin"
+}
+
+func withAppDisplayName(_ text: String) -> String {
+    text.replacingOccurrences(of: "Moblin", with: appDisplayName())
+}
+
 func formatOneDecimal(_ value: some BinaryFloatingPoint) -> String {
     String(format: "%.01f", Double(value))
 }
