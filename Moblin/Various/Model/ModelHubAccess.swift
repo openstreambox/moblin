@@ -94,6 +94,7 @@ extension Model {
             {
                 hub.access = access
             } else {
+                hub.access = nil
                 hub.accessLoadFailed = true
             }
             hub.accessRefreshTask = nil
