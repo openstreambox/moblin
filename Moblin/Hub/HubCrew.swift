@@ -67,6 +67,8 @@ struct HubCrewStream: Equatable {
     let detail: String?
     let device: String?
     let takeBack: HubAccessRow.End?
+    var ask: HubHandoverAsk?
+    var endTimes: [HubEndTime]?
 }
 
 struct HubSessionOwner: Equatable {
@@ -131,6 +133,7 @@ func hubSessionOwner(state: HubState?,
                      me: String?,
                      role: String,
                      told: (allows: [String], limits: [String: String])? = nil,
+                     ending: HubEnding? = nil,
                      when: HubWhen) -> HubSessionOwner?
 {
     guard let state, role != "admin", state.runsStream(me, now: when.now) else {
@@ -142,7 +145,7 @@ func hubSessionOwner(state: HubState?,
     return HubSessionOwner(role: HubWords.Access.role("session"),
                            line: HubWords.Crew.youRun,
                            allows: hubAllowsLine(allows, limits: limits),
-                           ends: state.session.runBy?.endsAt.map { HubWords.Crew.streamUntil(when.text($0)) },
+                           ends: hubRunEndLine(state, me: me, ending: ending, when: when),
                            giveBack: hubGiveBackConfirm())
 }
 
@@ -197,7 +200,7 @@ private func endOf(_ grant: HubGrant, _ name: String) -> HubAccessRow.End? {
     }
 }
 
-private func deviceRow(_ grant: HubGrant, me: String?, shared: Bool, handoverOn: Bool, when: HubWhen) -> HubCrewRow {
+private func deviceRow(_ grant: HubGrant, me: String?, shared: Bool, runs: Bool, when: HubWhen) -> HubCrewRow {
     let helper = grant.role == "helper"
     let isMe = grant.id == me || grant.isSelf == true
     let aside: String?
@@ -218,7 +221,7 @@ private func deviceRow(_ grant: HubGrant, me: String?, shared: Bool, handoverOn:
                       kind: "device",
                       name: grant.name,
                       aside: aside,
-                      tag: grant.runsStream == true && handoverOn ? HubWords.Crew.runs
+                      tag: runs ? HubWords.Crew.runs
                           : roleTag(grant.role, shared: shared),
                       status: grant.online == true ? HubWords.Crew.present : HubWords.Crew.away,
                       here: grant.online == true,
@@ -321,13 +324,20 @@ func hubCrewPage(state: HubState?,
                  me: String?,
                  role: String,
                  told: (allows: [String], limits: [String: String])? = nil,
+                 ending: HubEnding? = nil,
                  when: HubWhen) -> HubCrewPage
 {
     let owner = role == "admin"
     let runs = !owner && state?.runsStream(me, now: when.now) == true
     let manages = owner || runs
     let line = role == "helper" && !runs ? HubWords.Setup.crewLineHelper : HubWords.Setup.crewLine
-    let session = hubSessionOwner(state: state, access: access, me: me, role: role, told: told, when: when)
+    let session = hubSessionOwner(state: state,
+                                  access: access,
+                                  me: me,
+                                  role: role,
+                                  told: told,
+                                  ending: ending,
+                                  when: when)
     guard let access, manages else {
         let waiting = owner ? hubWaitingDevices(state).filter { $0.role != "admin" }.map { device in
             HubWaiting(id: device.id,
@@ -352,7 +362,18 @@ func hubCrewPage(state: HubState?,
     }
     let people = access.people ?? []
     let several = people.count > 1
-    let handoverOn = hubHandoverOn(access.stream.runBy?.endsAt, now: when.now)
+    // Whether a device runs the stream right now. The newest state decides,
+    // as it does for the controls; the list can be one request older and
+    // only words the handover.
+    func runsNow(_ device: String?) -> Bool {
+        if let state {
+            return state.runsStream(device, now: when.now)
+        }
+        guard let run = access.stream.runBy, run.kind == "handed", run.device?.id == device else {
+            return false
+        }
+        return hubHandoverOn(run.endsAt, now: when.now)
+    }
     let shared = several || !owner
     func active(_ grant: HubGrant) -> Bool {
         grant.kind == "device" && grant.state == "active"
@@ -364,7 +385,9 @@ func hubCrewPage(state: HubState?,
         people.first { $0.id == grant.person?.id } ?? (people.count == 1 ? people[0] : nil)
     }
     func rows(_ test: (HubGrant) -> Bool) -> [HubCrewRow] {
-        access.grants.filter(test).map { deviceRow($0, me: me, shared: shared, handoverOn: handoverOn, when: when) }
+        access.grants.filter(test).map {
+            deviceRow($0, me: me, shared: shared, runs: runsNow($0.id), when: when)
+        }
     }
     func sent(_ grant: HubGrant) -> Bool {
         grant.kind == "invite" && grant.how == "link"
@@ -415,23 +438,34 @@ func hubCrewPage(state: HubState?,
                                rows: access.grants.filter { $0.kind == "mod" }.map { modRow($0, when: when) }))
     groups = groups.filter { !$0.rows.isEmpty || $0.add != nil || $0.yours }
 
+    let waiting = waitingRows(access, shared: shared)
     var stream: HubCrewStream?
-    if owner, let run = access.stream.runBy, run.kind == "handed", handoverOn {
+    if owner, let listed = access.stream.runBy, listed.kind == "handed", runsNow(listed.device?.id) {
+        let run = hubHandoverTimes(listed, state: state)
+        let live = state.map { $0.session.live == "live" } ?? (access.stream.live == "live")
+        let answers = access.can?.contains("keep_stream") == true
         let gave = hubGaveList(run.gave)
         let device = run.device?.name ?? ""
         let name = run.forName?.isEmpty == false ? run.forName! : device
         let handed = access.grants.first { $0.id == run.device?.id }
-        let detail = [run.endsAt.map { HubWords.Access.runEnds(when.text($0)) },
-                      gave.isEmpty ? nil : HubWords.Access.runGave(gave)].compactMap { $0 }
+        var detail = hubHandoverEnds(run, live: live, when: when)
+        if !gave.isEmpty {
+            detail.append(HubWords.Access.runGave(gave))
+        }
+        // One filled button per view: Allow comes first.
+        let ask = hubHandoverAsk(run, live: live, answers: answers, filled: !waiting.contains { $0.allow },
+                                 when: when)
         stream = HubCrewStream(
             line: run.forName?.isEmpty == false ? HubWords.Access.runHanded(run.forName!, device)
                 : HubWords.Access.runHandedDevice(device),
             detail: detail.isEmpty ? nil : detail.joined(separator: " · "),
             device: run.device?.id,
             takeBack: handed?.can.contains("take_back") == true
-                ? .init(label: HubWords.Access.takeBack,
+                ? .init(label: ask == nil ? HubWords.Access.takeBack : HubWords.Access.Ask.takeBack,
                         confirm: gave.isEmpty ? HubWords.Access.confirmTakeBack(name)
-                            : HubWords.Access.confirmTakeBackGave(name, gave)) : nil
+                            : HubWords.Access.confirmTakeBackGave(name, gave)) : nil,
+            ask: ask,
+            endTimes: answers ? HubEndTime.choices(endTime: run.endTime) : nil
         )
     }
     let counts = [
@@ -445,7 +479,7 @@ func hubCrewPage(state: HubState?,
                        owner: owner,
                        runs: runs,
                        line: line,
-                       waiting: waitingRows(access, shared: shared),
+                       waiting: waiting,
                        groups: groups,
                        stream: stream,
                        session: session,

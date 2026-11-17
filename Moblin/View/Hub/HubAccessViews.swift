@@ -73,6 +73,7 @@ struct HubGrantActionsView: View {
         }
         if offersChange, let hand = row.hand {
             Button(hand.label) {
+                hub.handWait = .halfHour
                 ask(.hand)
             }
             .buttonStyle(HubRowButtonStyle())
@@ -118,7 +119,8 @@ struct HubGrantActionsView: View {
                               end: row.end.map { .init(label: endLabel ?? $0.label, confirm: $0.confirm) },
                               coOwner: row.allowConfirm
                                   ?? hubCoOwnerConfirm(person: nil, device: row.name),
-                              hand: row.hand)
+                              hand: row.hand,
+                              handWaits: row.handWaits)
         }
         HubAccessFailureView(hub: hub, grant: row.id)
     }
@@ -155,6 +157,8 @@ private struct HubAccessConfirmModifier: ViewModifier {
     var takeBack: HubAccessRow.End?
     var giveBack: HubAccessRow.End?
     var clear: HubAccessRow.End?
+    // Hand over also asks how long it may wait for Go live.
+    var handWaits = false
 
     private func current() -> (HubAccessAction, HubAccessRow.End)? {
         guard let confirming = hub.accessConfirming, confirming.grant == grant else {
@@ -177,9 +181,13 @@ private struct HubAccessConfirmModifier: ViewModifier {
         return found.map { (confirming.action, $0) }
     }
 
-    private func presented() -> Binding<Bool> {
+    private func waits() -> Bool {
+        handWaits && current()?.0 == .hand
+    }
+
+    private func presented(sheet: Bool) -> Binding<Bool> {
         Binding(get: {
-            current() != nil
+            current() != nil && waits() == sheet
         }, set: { presented in
             if !presented, hub.accessConfirming?.grant == grant {
                 hub.accessConfirming = nil
@@ -194,7 +202,7 @@ private struct HubAccessConfirmModifier: ViewModifier {
         case .coOwner:
             model.hubAllow(grant, coOwner: true)
         case .hand:
-            model.hubHandStream(grant)
+            model.hubHandStream(grant, wait: handWaits ? hub.handWait : nil)
         case .takeBack:
             model.hubTakeBackStream(grant)
         case .giveBack:
@@ -206,7 +214,10 @@ private struct HubAccessConfirmModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         let now = current()
-        content.confirmationDialog(now?.1.confirm ?? "", isPresented: presented(), titleVisibility: .visible) {
+        content.confirmationDialog(now?.1.confirm ?? "",
+                                   isPresented: presented(sheet: false),
+                                   titleVisibility: .visible)
+        {
             if let now {
                 Button(now.1.label, role: now.0 == .end || now.0 == .clear ? .destructive : nil) {
                     run(now.0)
@@ -214,6 +225,65 @@ private struct HubAccessConfirmModifier: ViewModifier {
                 Button(now.0 == .end ? HubWords.Access.keep : HubWords.Access.cancel, role: .cancel) {}
             }
         }
+        .sheet(isPresented: presented(sheet: true)) {
+            if let now {
+                HubHandOverWaitView(hub: hub, hand: now.1) {
+                    run(.hand)
+                }
+            }
+        }
+    }
+}
+
+// Handing over while the stream isn't live: the question, and how long the
+// handover may wait for Go live, 30 minutes unless another time is picked.
+private struct HubHandOverWaitView: View {
+    @ObservedObject var hub: HubProvider
+    let hand: HubAccessRow.End
+    let handOver: () -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text(hand.confirm)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Section {
+                    Picker(HubWords.Access.Wait.title, selection: $hub.handWait) {
+                        ForEach(HubWait.allCases) { wait in
+                            Text(wait.label)
+                                .tag(wait)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                    .labelsHidden()
+                } header: {
+                    Text(HubWords.Access.Wait.title)
+                        .textCase(nil)
+                } footer: {
+                    Text(HubWords.Access.Wait.line)
+                }
+                Section {
+                    Button(hand.label) {
+                        handOver()
+                    }
+                    .buttonStyle(HubDecisionButtonStyle())
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
+            }
+            .navigationTitle(hand.label)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(HubWords.Access.cancel) {
+                        hub.accessConfirming = nil
+                    }
+                }
+            }
+        }
+        .presentationDetents([.large])
     }
 }
 
@@ -226,7 +296,8 @@ extension View {
                           hand: HubAccessRow.End? = nil,
                           takeBack: HubAccessRow.End? = nil,
                           giveBack: HubAccessRow.End? = nil,
-                          clear: HubAccessRow.End? = nil) -> some View
+                          clear: HubAccessRow.End? = nil,
+                          handWaits: Bool = false) -> some View
     {
         modifier(HubAccessConfirmModifier(model: model,
                                           hub: hub,
@@ -236,7 +307,8 @@ extension View {
                                           hand: hand,
                                           takeBack: takeBack,
                                           giveBack: giveBack,
-                                          clear: clear))
+                                          clear: clear,
+                                          handWaits: handWaits))
     }
 }
 
@@ -380,17 +452,17 @@ private struct HubAccessRunningView: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            if let takeBack = running.takeBack, let device = running.device {
+            if running.giveBack == nil, let device = running.device,
+               running.takeBack != nil || running.ask != nil || running.endTimes != nil
+            {
                 // Filed under its own id, apart from the same device's row.
-                let grant = "\(device)#stream"
-                Button(takeBack.label) {
-                    hub.accessFailed = nil
-                    hub.accessConfirming = HubAccessConfirm(grant: grant, action: .takeBack)
-                }
-                .buttonStyle(HubRowButtonStyle())
-                .disabled(!hub.connected || hub.accessBusy.contains(grant))
-                .padding(.top, 4)
-                HubAccessFailureView(hub: hub, grant: grant)
+                HubHandedStreamControls(model: model,
+                                        hub: hub,
+                                        device: device,
+                                        ask: running.ask,
+                                        endTimes: running.endTimes,
+                                        takeBack: running.takeBack)
+                    .padding(.top, 4)
             }
             if let giveBack = running.giveBack {
                 Button(giveBack.label) {
@@ -404,11 +476,7 @@ private struct HubAccessRunningView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .hubAccessConfirm(model: model,
-                          hub: hub,
-                          grant: running.giveBack != nil ? hubGiveBackGrant : "\(running.device ?? "")#stream",
-                          takeBack: running.takeBack,
-                          giveBack: running.giveBack)
+        .hubAccessConfirm(model: model, hub: hub, grant: hubGiveBackGrant, giveBack: running.giveBack)
         .padding(.vertical, 4)
         .listRowBackground(HubLook.surface)
     }

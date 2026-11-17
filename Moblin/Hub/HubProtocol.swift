@@ -73,12 +73,28 @@ struct HubOutput: Codable, Equatable {
 struct HubSessionRunBy: Codable, Equatable {
     var device: String
     var since: String?
+    // When the handover ends if nothing changes, and by which rule: time,
+    // stream (the grace period after the stream stopped) or unanswered.
     var endsAt: String?
+    var endsWhy: String?
+    // The end time an owner set, or nil.
+    var endTime: String?
+    // Set while the grace period after the stream stopped runs.
+    var stoppedAt: String?
+    // Owner devices were asked whether it goes on, and nobody answered yet.
+    var askedAt: String?
+    // Handed over while not live: it ends then unless the stream goes live.
+    var waitUntil: String?
 
     enum CodingKeys: String, CodingKey {
         case device
         case since
         case endsAt = "ends_at"
+        case endsWhy = "ends_why"
+        case endTime = "end_time"
+        case stoppedAt = "stopped_at"
+        case askedAt = "asked_at"
+        case waitUntil = "wait_until"
     }
 }
 
@@ -111,6 +127,50 @@ func hubHandoverWatch(_ state: HubState?, me: String?, role: String?, now: Date)
         return .ranOut
     }
     return run.endsAt.flatMap { HubWhen.date($0) }.map { .endsAt($0) } ?? .none
+}
+
+// The hub's warning to the phone that runs the stream: its handover ends
+// soon (stream.ending), by why and whether the stream was live then.
+struct HubEnding: Equatable {
+    var endsAt: String
+    var why: String?
+    var live: Bool
+}
+
+// How close the end of a handover is before the phone that runs the stream
+// reads why and by when (the hub's POLICY.handover.warnMs).
+let hubEndingSoon: TimeInterval = 15 * 60
+
+// What the phone that runs the stream reads about its end, from the newest
+// state: why and by when once the end is near or is an owner's end time,
+// otherwise that it runs while the stream is live. The hub's warning counts
+// while it is about the same end; an answer or Go live moves the end and
+// leaves the warning behind.
+func hubRunEndLine(_ state: HubState?, me: String?, ending: HubEnding?, when: HubWhen) -> String? {
+    guard let state, state.runsStream(me, now: when.now), let run = state.session.runBy,
+          let endsAt = run.endsAt, let end = HubWhen.date(endsAt)
+    else {
+        return nil
+    }
+    if let ending, ending.endsAt == endsAt {
+        return HubWords.Crew.ending(ending.why, live: ending.live, when.text(endsAt))
+    }
+    // While it waits for Go live, the whole wait says by when.
+    if run.waitUntil != nil || run.endsWhy == "not_live" {
+        return HubWords.Crew.ending("not_live", live: false, when.text(endsAt))
+    }
+    if end.timeIntervalSince(when.now) <= hubEndingSoon || run.endsWhy == "time" {
+        return HubWords.Crew.ending(run.endsWhy, live: state.session.live == "live", when.text(endsAt))
+    }
+    return HubWords.Crew.streamUntil(when.text(endsAt))
+}
+
+// How long the panel sleeps before it checks a handover's end again, in
+// nanoseconds: just past the end, and at most a day, so an end however far
+// ahead is still a sleep the phone can take.
+func hubHandoverWakeDelay(_ end: Date, now: Date) -> UInt64 {
+    let seconds = min(max(end.timeIntervalSince(now), 0) + 0.2, 86400)
+    return UInt64(seconds * 1_000_000_000)
 }
 
 struct HubSession: Codable, Equatable {

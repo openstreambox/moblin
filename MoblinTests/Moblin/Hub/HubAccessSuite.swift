@@ -203,7 +203,7 @@ struct HubAccessSuite {
         let running = try #require(page.running)
         #expect(running.line == "Jo runs it, on Jo's laptop.")
         #expect(running.facts == ["Handed over by iPhone · today at 09:30",
-                                  "Ends when the stream ends, or tomorrow at 09:30",
+                                  "Runs while the stream is live. Without an owner's answer it ends tomorrow at 09:30.",
                                   "Let in for this stream: 1 mod. They end with it."])
         #expect(running.takeBack?.confirm ==
             "Take this stream back from Jo? What they let in (1 mod) loses access at once. The stream keeps running.")

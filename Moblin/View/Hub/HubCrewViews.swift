@@ -173,10 +173,121 @@ private struct HubCrewRowView: View {
     }
 }
 
-private struct HubCrewStreamView: View {
+// An owner's controls for a stream handed to someone: the hub's ask with
+// Keep, Set an end time and Take back now, or the last two alone, and the
+// end times to choose from. Nothing happens if nobody answers.
+struct HubHandedStreamControls: View {
+    let model: Model
+    @ObservedObject var hub: HubProvider
+    let device: String
+    let ask: HubHandoverAsk?
+    let endTimes: [HubEndTime]?
+    let takeBack: HubAccessRow.End?
+    // Set where the view has a filled button of its own to weigh.
+    var filled: Bool?
+
+    private var grant: String {
+        hubStreamGrant(device)
+    }
+
+    private func choosing() -> Binding<Bool> {
+        Binding(get: {
+            hub.choosingEndTime == grant
+        }, set: { presented in
+            if !presented, hub.choosingEndTime == grant {
+                hub.choosingEndTime = nil
+            }
+        })
+    }
+
+    @ViewBuilder
+    private func buttons() -> some View {
+        if let ask {
+            Button(HubWords.Access.Ask.keep) {
+                hub.accessFailed = nil
+                model.hubKeepStream(device)
+            }
+            .buttonStyle(HubRowButtonStyle(filled: filled ?? ask.filled))
+            .accessibilityHint(ask.title)
+        }
+        if endTimes != nil {
+            Button(ask == nil ? HubWords.Access.setEndTime : HubWords.Access.Ask.endTime) {
+                hub.accessFailed = nil
+                hub.handoverAnswer = nil
+                hub.choosingEndTime = grant
+            }
+            .buttonStyle(HubRowButtonStyle())
+        }
+        if let takeBack {
+            Button(takeBack.label) {
+                hub.accessFailed = nil
+                hub.handoverAnswer = nil
+                hub.accessConfirming = HubAccessConfirm(grant: grant, action: .takeBack)
+            }
+            .buttonStyle(HubRowButtonStyle())
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let ask {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(ask.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(HubLook.text)
+                    if let since = ask.since {
+                        Text(since)
+                            .font(.footnote)
+                            .foregroundStyle(HubLook.textMuted)
+                    }
+                    Text(ask.line)
+                        .font(.footnote)
+                        .foregroundStyle(HubLook.textMuted)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(HubLook.surfaceMuted, in: RoundedRectangle(cornerRadius: HubLook.radiusControl))
+                .accessibilityElement(children: .combine)
+            }
+            if ask != nil || endTimes != nil || takeBack != nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        buttons()
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        buttons()
+                    }
+                }
+                .disabled(!hub.connected || hub.accessBusy.contains(grant))
+            }
+            if let answer = hub.handoverAnswer, answer.grant == grant {
+                Text(answer.line)
+                    .font(.footnote)
+                    .foregroundStyle(HubLook.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HubAccessFailureView(hub: hub, grant: grant)
+        }
+        .confirmationDialog(HubWords.Access.EndTime.title, isPresented: choosing(), titleVisibility: .visible) {
+            ForEach(endTimes ?? []) { choice in
+                Button(choice.label) {
+                    model.hubKeepStream(device, endTime: choice)
+                }
+            }
+            Button(HubWords.Access.cancel, role: .cancel) {}
+        } message: {
+            Text(HubWords.Access.EndTime.line)
+        }
+        .hubAccessConfirm(model: model, hub: hub, grant: grant, takeBack: takeBack)
+    }
+}
+
+struct HubCrewStreamView: View {
     let model: Model
     @ObservedObject var hub: HubProvider
     let stream: HubCrewStream
+    var filled: Bool?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -193,25 +304,18 @@ private struct HubCrewStreamView: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            if let takeBack = stream.takeBack, let device = stream.device {
-                let grant = "\(device)#stream"
-                Button(takeBack.label) {
-                    hub.accessFailed = nil
-                    hub.accessConfirming = HubAccessConfirm(grant: grant, action: .takeBack)
-                }
-                .buttonStyle(HubRowButtonStyle())
-                .disabled(!hub.connected || hub.accessBusy.contains(grant))
-                .padding(.top, 4)
-                HubAccessFailureView(hub: hub, grant: grant)
+            if let device = stream.device {
+                HubHandedStreamControls(model: model,
+                                        hub: hub,
+                                        device: device,
+                                        ask: stream.ask,
+                                        endTimes: stream.endTimes,
+                                        takeBack: stream.takeBack,
+                                        filled: filled)
+                    .padding(.top, 4)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .hubAccessConfirm(model: model,
-                          hub: hub,
-                          grant: "\(stream.device ?? "")#stream",
-                          takeBack: stream.takeBack)
-        .padding(.vertical, 4)
-        .listRowBackground(HubLook.surface)
     }
 }
 
@@ -297,6 +401,8 @@ struct HubCrewView: View {
                 Section {
                     if let stream = page.stream {
                         HubCrewStreamView(model: model, hub: hub, stream: stream)
+                            .padding(.vertical, 4)
+                            .listRowBackground(HubLook.surface)
                     }
                     if let session = page.session {
                         HubGiveBackView(model: model, hub: hub, session: session)

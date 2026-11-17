@@ -105,6 +105,17 @@ class HubProvider: ObservableObject {
     // The handover already said to have run out, so a late state naming
     // it again says nothing new.
     var handoverRanOut: HubSessionRunBy?
+    // The hub's warning that this phone's handover ends soon.
+    @Published var ending: HubEnding?
+    // On an owner device: the handed stream whose end time is being chosen,
+    // and what the last answer to the hub's ask did.
+    @Published var choosingEndTime: String?
+    @Published var handoverAnswer: HubHandoverAnswer?
+    // A notification about the hub's ask is in the list until it is answered.
+    var askNoticed = false
+    // Handing over while not live: how long it may wait for Go live, kept
+    // while the dialog is open.
+    @Published var handWait: HubWait = .halfHour
     var accessRefreshTask: Task<Void, Never>?
     var accessRefreshAgain = false
 
@@ -560,6 +571,8 @@ extension Model {
         hub.handoverTimer?.cancel()
         hub.handoverTimer = nil
         hub.handoverRanOut = nil
+        hub.ending = nil
+        hubWithdrawAskNotice()
         hubForgetAccess()
         storeSettings()
     }

@@ -368,6 +368,24 @@ private struct HubSessionOwnerView: View {
     }
 }
 
+// On an owner device, while the hub asks whether a handover goes on: the
+// handed stream with its answers, where the panel opens. Ignoring it is safe.
+private struct HubStreamAskView: View {
+    let model: Model
+    @ObservedObject var hub: HubProvider
+    let stream: HubCrewStream
+    let filled: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HubSectionLabel(text: HubWords.Crew.thisStream)
+            HubCard {
+                HubCrewStreamView(model: model, hub: hub, stream: stream, filled: filled)
+            }
+        }
+    }
+}
+
 private struct HubPanelLinkRow: View {
     let title: String
     let line: String?
@@ -503,6 +521,16 @@ private struct HubJoinedPanelView: View {
         }
         if let session = crew.session {
             HubSessionOwnerView(model: model, hub: hub, session: session)
+        }
+        if hub.connected, let stream = crew.stream, let ask = stream.ask {
+            // One filled button per view: Allow, then Connect while it is
+            // the next step, come first, and the panel carries none while
+            // the output is live.
+            HubStreamAskView(model: model,
+                             hub: hub,
+                             stream: stream,
+                             filled: ask.filled && controls.feed != .connect && controls.feed != .connecting
+                                 && hub.state?.isLive != true)
         }
         if hub.connected, !hub.pending {
             if let move = controls.move {

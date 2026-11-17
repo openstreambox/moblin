@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 // The owner's side of the hub on this phone: helper and mod links, Allow,
 // and "Who has access" with its trail. Everything goes over the phone's own
@@ -34,6 +35,20 @@ struct HubAccessConfirm: Equatable {
 let hubTrailGrant = "trail"
 let hubGiveBackGrant = "stream#give-back"
 
+// The handed stream's own requests (Take back, Keep, an end time) are filed
+// under this id, apart from the same device's row.
+func hubStreamGrant(_ device: String) -> String {
+    "\(device)#stream"
+}
+
+// What an owner's last answer to the hub's ask did, said on that stream.
+struct HubHandoverAnswer: Equatable {
+    let grant: String
+    let line: String
+}
+
+private let hubAskNotice = "osb.hub.stream.ask"
+
 // When a helper's access ends, chosen while making the link.
 enum HubHelperAccessEnds: Hashable {
     case stream
@@ -62,6 +77,7 @@ extension Model {
                     me: database.hub.deviceId,
                     role: database.hub.role,
                     told: hub.sessionTold,
+                    ending: hub.ending,
                     when: hubWhen())
     }
 
@@ -71,6 +87,7 @@ extension Model {
 
     func hubAccessPageNow() -> HubAccessPage? {
         hubAccessPage(hub.access,
+                      state: hub.pending ? nil : hub.state,
                       connected: hub.connected,
                       older: hub.accessOlder,
                       more: hub.accessMore,
@@ -138,6 +155,8 @@ extension Model {
         hub.accessFailed = nil
         hub.accessBusy = []
         hub.madeLink = nil
+        hub.choosingEndTime = nil
+        hub.handoverAnswer = nil
         hub.path = []
     }
 
@@ -174,6 +193,13 @@ extension Model {
         if before?.runsStream(me, now: now) == true, !state.runsStream(me, now: now), database.hub.role != "admin" {
             hubForgetAccess()
         }
+        if state.session.runBy?.device != me {
+            hub.ending = nil
+        }
+        // Answered by any owner, or the handover is over: the question is gone.
+        if state.session.runBy?.askedAt == nil {
+            hubWithdrawAskNotice()
+        }
         hubWatchHandover()
         if before?.devices != state.devices || before?.invites != state.invites || before?.mods != state.mods
             || before?.session != state.session
@@ -193,9 +219,9 @@ extension Model {
         case .none:
             break
         case let .endsAt(end):
-            let delay = max(end.timeIntervalSince(now), 0) + 0.2
+            let delay = hubHandoverWakeDelay(end, now: now)
             hub.handoverTimer = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: delay)
                 guard !Task.isCancelled else {
                     return
                 }
@@ -208,8 +234,9 @@ extension Model {
             }
             hub.handoverRanOut = run
             hub.sessionTold = nil
+            hub.ending = nil
             hubForgetAccess()
-            let line = HubWords.Crew.takenBack("time", role: database.hub.role)
+            let line = HubWords.Crew.takenBack(run.endsWhy ?? "time", role: database.hub.role)
             hub.said = line
             makeToast(title: line)
             hub.objectWillChange.send()
@@ -259,6 +286,7 @@ extension Model {
             makeToast(title: line)
             hubRefreshAccess()
         case "stream.handed":
+            hub.ending = nil
             let by = message.decode("by", as: HubPersonRef.self)?.name ?? ""
             if let allows = message.object["allows"] as? [String] {
                 hub.sessionTold = (allows, message.object["limits"] as? [String: String] ?? [:])
@@ -268,6 +296,7 @@ extension Model {
             hubRefreshAccess()
         case "stream.taken_back":
             hub.sessionTold = nil
+            hub.ending = nil
             let line = HubWords.Crew.takenBack(message.string("why"), role: database.hub.role)
             // A handover that ran out here first was already said.
             if hub.said != line {
@@ -277,18 +306,80 @@ extension Model {
             if !hubIsOwner() {
                 hubForgetAccess()
             }
+        case "stream.ending":
+            // Only the phone that runs the stream is warned. The line is
+            // worded here, with the time in this phone's clock.
+            guard !hubIsOwner(), let endsAt = message.string("ends_at") else {
+                return
+            }
+            let ending = HubEnding(endsAt: endsAt, why: message.string("why"), live: message.bool("live") == true)
+            hub.ending = ending
+            makeToast(title: HubWords.Crew.ending(ending.why, live: ending.live, hubWhen().text(endsAt)))
+        case "stream.ask":
+            // On an owner device: a quiet question, never a sheet. The
+            // answers are on the handed stream; ignoring it is safe.
+            guard hubIsOwner() else {
+                return
+            }
+            let device = message.decode("device", as: HubPersonRef.self)?.name ?? ""
+            let who = message.string("for") ?? ""
+            let title = who.isEmpty ? HubWords.Access.Ask.titleDevice(device) : HubWords.Access.Ask.title(who)
+            let endsAt = message.string("ends_at")
+            let line = message.bool("live") == true ? HubWords.Access.Ask.live(hubWhen().text(endsAt))
+                : HubWords.Access.Ask.idle(hubWhen().text(endsAt))
+            makeToast(title: title, subTitle: line)
+            hubPostAskNotice(title: title, line: line)
+            hubRefreshAccess()
         default:
             break
         }
     }
 
+    // The ask as a quiet notification: delivered to the notification list
+    // without a sound, and without asking for permission first.
+    private func hubPostAskNotice(title: String, line: String) {
+        #if DEBUG
+        if hub.showcase {
+            return
+        }
+        #endif
+        hub.askNoticed = true
+        UNUserNotificationCenter.current().requestAuthorization(options: [.provisional, .alert]) { granted, _ in
+            guard granted else {
+                return
+            }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = line
+            content.interruptionLevel = .passive
+            UNUserNotificationCenter.current()
+                .add(UNNotificationRequest(identifier: hubAskNotice, content: content, trigger: nil),
+                     withCompletionHandler: nil)
+        }
+    }
+
+    func hubWithdrawAskNotice() {
+        guard hub.askNoticed else {
+            return
+        }
+        hub.askNoticed = false
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [hubAskNotice])
+        center.removePendingNotificationRequests(withIdentifiers: [hubAskNotice])
+    }
+
     // MARK: - One request for one row
     // A refusal, or a request that didn't reach the hub, is shown on that
     // row. The list itself only changes when the hub reports it.
-    private func hubAccessRequest(_ grant: String, _ type: String, _ params: [String: Any]) {
+    private func hubAccessRequest(_ grant: String,
+                                  _ type: String,
+                                  _ params: [String: Any],
+                                  done: ((HubMessage) -> Void)? = nil)
+    {
         hub.accessConfirming = nil
         hub.accessFailed = nil
         hub.accessFailedLine = HubWords.Access.failed
+        hub.handoverAnswer = nil
         guard let connection = hub.connection else {
             hub.accessFailed = grant
             return
@@ -296,7 +387,8 @@ extension Model {
         hub.accessBusy.insert(grant)
         Task { @MainActor in
             do {
-                _ = try await connection.request(type, params)
+                let reply = try await connection.request(type, params)
+                done?(reply)
             } catch let error as HubRequestError {
                 switch error.code {
                 case "confirm_needed":
@@ -333,12 +425,33 @@ extension Model {
         hub.access?.grants.first { $0.id == device }?.newOwner == true
     }
 
-    func hubHandStream(_ device: String) {
-        hubAccessRequest(device, "stream.hand", ["device": device])
+    // wait: how long a handover given while not live may wait for Go live.
+    func hubHandStream(_ device: String, wait: HubWait? = nil) {
+        hubAccessRequest(device, "stream.hand", hubHandRequest(device, wait: wait))
     }
 
-    func hubTakeBackStream(_ device: String) {
-        hubAccessRequest(device, "stream.take_back", [:])
+    func hubTakeBackStream(_ grant: String) {
+        hubAccessRequest(grant, "stream.take_back", [:])
+    }
+
+    // An owner's answer to the hub's ask, or a new end time (or none):
+    // stream.keep. The hub's next state carries the handover's new end.
+    func hubKeepStream(_ device: String, endTime: HubEndTime? = nil) {
+        let grant = hubStreamGrant(device)
+        hub.choosingEndTime = nil
+        hubAccessRequest(grant, "stream.keep", endTime?.request(now: hub.now()) ?? [:]) { [weak self] reply in
+            guard let self else {
+                return
+            }
+            let line: String?
+            if endTime == nil {
+                line = HubWords.Access.Ask.kept
+            } else {
+                line = reply.decode("run_by", as: HubRunBy.self)?.endTime
+                    .map { HubWords.Access.Ask.endSet(self.hubWhen().text($0)) }
+            }
+            hub.handoverAnswer = line.map { HubHandoverAnswer(grant: grant, line: $0) }
+        }
     }
 
     func hubGiveBackStream() {
