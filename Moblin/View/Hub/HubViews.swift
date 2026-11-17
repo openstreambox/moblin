@@ -25,13 +25,13 @@ struct HubStatusRowView: View {
             model.toggleShowingPanel(type: .rig, panel: .rig)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(localized: "Rig: \(status.spoken)"))
-        .accessibilityHint(String(localized: "Opens the rig panel"))
+        .accessibilityLabel(HubWords.Setup.statusLabel(status.spoken))
+        .accessibilityHint(HubWords.Setup.opensPanel)
         .accessibilityAddTraits([.isButton, .updatesFrequently])
     }
 }
 
-private struct HubRigHeaderView: View {
+private struct HubSetupHeaderView: View {
     let name: String
     @ScaledMetric(relativeTo: .title3) private var markSize: CGFloat = 28
 
@@ -39,7 +39,7 @@ private struct HubRigHeaderView: View {
         HStack(alignment: .center, spacing: 10) {
             HubMarkView(size: markSize)
             VStack(alignment: .leading, spacing: 0) {
-                HubSectionLabel(text: String(localized: "Your rig"))
+                HubSectionLabel(text: HubWords.Setup.yours)
                 Text(name)
                     .font(.headline)
                     .foregroundStyle(HubLook.text)
@@ -260,14 +260,14 @@ private struct HubPrivacyControlView: View {
     }
 }
 
-private struct HubRigStreamView: View {
+private struct HubSetupStreamView: View {
     let name: String
     let bonded: Bool
     let remoteControl: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HubSectionLabel(text: String(localized: "Set by your rig"))
+            HubSectionLabel(text: HubWords.Setup.setBy)
             HubCard {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Image(systemName: "lock")
@@ -292,7 +292,7 @@ private struct HubRigStreamView: View {
                 }
                 .accessibilityElement(children: .combine)
             }
-            HubHintView(text: String(localized: "Nothing to type or change. Leaving the rig removes it from this phone."))
+            HubHintView(text: HubWords.Setup.leaveHint)
                 .accessibilityHidden(false)
         }
     }
@@ -302,67 +302,68 @@ private struct HubRigStreamView: View {
 private struct HubWaitingDeviceView: View {
     let model: Model
     @ObservedObject var hub: HubProvider
-    let device: HubDevice
-
-    @ViewBuilder
-    private func buttons() -> some View {
-        Button {
-            // A new co-owner's device asks first; any other is let in.
-            if model.hubNeedsCoOwnerConfirm(device: device.id) {
-                hub.accessFailed = nil
-                hub.accessConfirming = HubAccessConfirm(grant: device.id, action: .coOwner)
-            } else {
-                model.hubAllow(device.id)
-            }
-        } label: {
-            Text(HubWords.Access.allow)
-        }
-        .buttonStyle(HubDecisionButtonStyle())
-        .accessibilityLabel("\(HubWords.Access.allow): \(device.name)")
-        .accessibilityHint(hubAllowsLine(hubRoleAllows(device.role)))
-        Button {
-            hub.accessFailed = nil
-            hub.accessConfirming = HubAccessConfirm(grant: device.id, action: .end)
-        } label: {
-            Text(HubWords.Access.remove)
-        }
-        .buttonStyle(HubOutlineButtonStyle())
-        .accessibilityLabel("\(HubWords.Access.remove): \(device.name)")
-    }
+    let waiting: HubWaiting
 
     var body: some View {
-        let role = HubWords.Access.role(device.role)
         VStack(alignment: .leading, spacing: 8) {
             HubSectionLabel(text: HubWords.Access.waiting)
             HubCard {
-                Text(device.role == "helper" ? HubWords.Crew.wantsToHelp(device.name)
-                    : HubWords.Crew.wantsToJoin(device.name))
-                    .font(.headline)
-                    .foregroundStyle(HubLook.text)
-                    .fixedSize(horizontal: false, vertical: true)
-                // Allow first, within reach without scrolling; what it
-                // gives is said right under it.
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) {
-                        buttons()
-                    }
-                    VStack(spacing: 8) {
-                        buttons()
-                    }
-                }
-                Text("\(role) · \(hubAllowsLine(hubRoleAllows(device.role)))")
-                    .font(.footnote)
-                    .foregroundStyle(HubLook.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                HubAccessFailureView(hub: hub, grant: device.id)
+                HubWaitingView(model: model, hub: hub, waiting: waiting)
             }
-            .disabled(hub.accessBusy.contains(device.id))
-            .hubAccessConfirm(model: model,
-                              hub: hub,
-                              grant: device.id,
-                              end: .init(label: HubWords.Access.remove,
-                                         confirm: HubWords.Access.confirmRemove(device.name)),
-                              coOwner: model.hubCoOwnerConfirmFor(device: device))
+        }
+    }
+}
+
+private struct HubSaidView: View {
+    @ObservedObject var hub: HubProvider
+    let line: String
+
+    var body: some View {
+        HubCard {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    text()
+                    Spacer(minLength: 8)
+                    button()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    text()
+                    button()
+                }
+            }
+        }
+    }
+
+    private func text() -> some View {
+        Label {
+            Text(line)
+                .font(.subheadline)
+                .foregroundStyle(HubLook.text)
+                .fixedSize(horizontal: false, vertical: true)
+        } icon: {
+            HubStatusMarkView(kind: .caution)
+        }
+    }
+
+    private func button() -> some View {
+        Button(HubWords.Crew.ok) {
+            hub.said = nil
+        }
+        .buttonStyle(HubRowButtonStyle())
+    }
+}
+
+private struct HubSessionOwnerView: View {
+    let model: Model
+    @ObservedObject var hub: HubProvider
+    let session: HubSessionOwner
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HubSectionLabel(text: "\(HubWords.Crew.thisStream) · \(session.role)")
+            HubCard {
+                HubGiveBackView(model: model, hub: hub, session: session, full: true)
+            }
         }
     }
 }
@@ -403,19 +404,23 @@ private struct HubPanelLinkRow: View {
 // An owner device: the way to the crew and to "Who has access".
 private struct HubCrewLinksView: View {
     let summary: HubCrewSummary
+    let page: HubCrewPage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HubSectionLabel(text: String(localized: "People"))
             HubCard {
                 HubPanelLinkRow(title: HubWords.Crew.title,
-                                line: summary.line ?? String(localized: "Helper and mod links"),
+                                line: summary.line ?? (page.owner
+                                    ? String(localized: "Helpers, mods and co-owners")
+                                    : String(localized: "Helpers and mods for this stream")),
                                 screen: .crew)
                 Rectangle()
                     .fill(HubLook.border)
                     .frame(height: HubLook.hairline)
                 HubPanelLinkRow(title: HubWords.Access.title,
-                                line: String(localized: "Devices, helpers, mods, and what happened"),
+                                line: page.summary.isEmpty ? HubWords.Crew.accessLine
+                                    : "\(page.summary). \(HubWords.Crew.accessLine)",
                                 screen: .access)
             }
         }
@@ -440,10 +445,11 @@ private struct HubCrewReadOnlyView: View {
                     ForEach(summary.mods, id: \.id) { mod in
                         row(mod.name,
                             HubWords.Access.role("mod"),
-                            mod.state == "joined" ? HubWords.Crew.joined : HubWords.Crew.waiting)
+                            mod.state != "joined" ? HubWords.Crew.notOpened
+                                : mod.online == true ? HubWords.Access.pageOpen : HubWords.Access.pageClosed)
                     }
                 }
-                HubHintView(text: String(localized: "Only an owner device can let people in or remove them."))
+                HubHintView(text: HubWords.Crew.notOwner)
                     .accessibilityHidden(false)
             }
         }
@@ -472,7 +478,7 @@ private struct HubJoinedPanelView: View {
     var body: some View {
         let status = model.hubStatus()
         let controls = model.hubControlList()
-        HubRigHeaderView(name: settings.name)
+        HubSetupHeaderView(name: settings.name)
         HubCard {
             // While hidden, the privacy card below says it and who asked.
             HubStatusView(status: status, showLine: status.kind != .hidden, showPhone: status.kind != .hidden)
@@ -487,10 +493,16 @@ private struct HubJoinedPanelView: View {
                 .accessibilityHint(String(localized: "Tries to reach the hub again right away."))
             }
         }
-        let owner = model.hubIsOwner()
-        let waiting = owner && hub.connected ? hubWaitingDevices(hub.state) : []
-        ForEach(waiting, id: \.id) { device in
-            HubWaitingDeviceView(model: model, hub: hub, device: device)
+        if let said = hub.said {
+            HubSaidView(hub: hub, line: said)
+        }
+        let crew = model.hubCrewPageNow()
+        let waiting = hub.connected ? crew.waiting : []
+        ForEach(waiting) { waiting in
+            HubWaitingDeviceView(model: model, hub: hub, waiting: waiting)
+        }
+        if let session = crew.session {
+            HubSessionOwnerView(model: model, hub: hub, session: session)
         }
         if hub.connected, !hub.pending {
             if let move = controls.move {
@@ -502,7 +514,7 @@ private struct HubJoinedPanelView: View {
                 // Allow, when someone waits, is the screen's one decision.
                 HubFeedControlView(model: model,
                                    control: feed,
-                                   isDecision: waiting.isEmpty,
+                                   isDecision: !waiting.contains { $0.allow },
                                    onAir: controls.move == .onAir)
             }
             if let privacy = controls.privacy {
@@ -527,20 +539,20 @@ private struct HubJoinedPanelView: View {
             HubHintView(text: String(localized: "The controls come back when the hub answers. Until then nothing is assumed about the stream."))
                 .accessibilityHidden(false)
         }
-        if owner {
-            HubCrewLinksView(summary: hubCrewSummary(hub.state))
+        if crew.manages {
+            HubCrewLinksView(summary: hubCrewSummary(hub.state), page: crew)
         } else if !hub.pending {
             HubCrewReadOnlyView(summary: hubCrewSummary(hub.state))
         }
         if let stream = model.hubRigStream() {
-            HubRigStreamView(name: stream.name,
+            HubSetupStreamView(name: stream.name,
                              bonded: stream.url.hasPrefix("srtla"),
                              remoteControl: settings.remoteControlSet)
         }
         Button(role: .destructive) {
             presentingLeave = true
         } label: {
-            Text("Leave this rig")
+            Text(HubWords.Setup.leave)
                 .font(.body)
                 .foregroundStyle(HubLook.urgent)
                 .frame(maxWidth: .infinity, minHeight: HubLook.minTouchTarget)
@@ -551,7 +563,7 @@ private struct HubJoinedPanelView: View {
                 model.leaveHub()
             }
         } message: {
-            Text("The stream settings from the rig are removed from this phone.")
+            Text(HubWords.Setup.leaveLine)
         }
     }
 }
@@ -565,11 +577,11 @@ private struct HubEmptyPanelView: View {
         case let .removed(name):
             HubStatus(kind: .unknown,
                       title: String(localized: "Can't say right now"),
-                      line: String(localized: "This phone isn't in \(name) any more. Its stream settings from the rig are gone."))
+                      line: String(localized: "This phone isn't in \(name) any more. \(HubWords.Setup.settingsGone)"))
         case let .unknownToHub(name):
             HubStatus(kind: .unknown,
                       title: String(localized: "Can't say right now"),
-                      line: String(localized: "\(name) doesn't know this phone any more. Its stream settings from the rig are gone."))
+                      line: String(localized: "\(name) doesn't know this phone any more. \(HubWords.Setup.settingsGone)"))
         }
     }
 
@@ -581,11 +593,11 @@ private struct HubEmptyPanelView: View {
         }
         VStack(alignment: .leading, spacing: HubLook.stack) {
             HubMarkView(size: markSize)
-            Text(notice == nil ? "Join your rig" : "Join again")
+            Text(notice == nil ? HubWords.Setup.joinTitle : String(localized: "Join again"))
                 .font(.title2.weight(.bold))
                 .foregroundStyle(HubLook.text)
                 .accessibilityAddTraits(.isHeader)
-            Text("Scan the code on your dashboard, or open the link you were sent.")
+            Text(HubWords.Setup.joinLine)
                 .font(.body)
                 .foregroundStyle(HubLook.text)
                 .fixedSize(horizontal: false, vertical: true)
@@ -603,14 +615,14 @@ private struct HubEmptyPanelView: View {
                 .fill(HubLook.border)
                 .frame(height: HubLook.hairline)
             Label {
-                Text("Or tap the link in the message someone on the rig sent you.")
+                Text(HubWords.Setup.sentLink)
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 Image(systemName: "link")
             }
             .foregroundStyle(HubLook.text)
         }
-        HubHintView(text: String(localized: "Nothing to type. The code is a one-time ticket, and your rig fills in this phone's stream settings."))
+        HubHintView(text: HubWords.Setup.joinHint)
             .accessibilityHidden(false)
     }
 }
@@ -653,6 +665,6 @@ struct HubPanelView: View {
             #endif
         }
         .background(HubLook.background)
-        .navigationTitle("Rig")
+        .navigationTitle(HubWords.Setup.panelTitle)
     }
 }

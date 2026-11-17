@@ -47,7 +47,7 @@ private struct HubJoinedView: View {
         }
         if !filled.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
-                HubSectionLabel(text: String(localized: "Set by your rig"))
+                HubSectionLabel(text: HubWords.Setup.setBy)
                 HubCard {
                     ForEach(filled, id: \.self) { item in
                         Label {
@@ -119,7 +119,7 @@ struct HubJoinView: View {
                     case let .pending(name):
                         HubJoinProgressView(title: String(localized: "Waiting for Allow"),
                                             line: String(localized: "Someone on \(name) has to allow this phone."))
-                        Text("The link was sent, not scanned off the rig's own screen, so someone on the rig confirms it's you. You can close this; the rig panel shows when you're in.")
+                        Text(HubWords.Setup.pendingHint)
                             .font(.footnote)
                             .foregroundStyle(HubLook.textMuted)
                             .fixedSize(horizontal: false, vertical: true)

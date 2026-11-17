@@ -213,7 +213,7 @@ enum SettingsQuickButtonType: String, Codable, CaseIterable {
         case .backpack:
             String(localized: "Backpack")
         case .rig:
-            String(localized: "Rig")
+            HubWords.Setup.panelTitle
         }
     }
 

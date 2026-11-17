@@ -11,6 +11,8 @@ enum HubScreen: Hashable {
     case access
     case makeHelper
     case makeMod
+    case makeCoOwner
+    case ownerName
 }
 
 // What a row's button asks about once before the hub is asked.
@@ -19,6 +21,7 @@ enum HubAccessAction: Equatable {
     case coOwner
     case hand
     case takeBack
+    case giveBack
     case clear
 }
 
@@ -29,6 +32,7 @@ struct HubAccessConfirm: Equatable {
 
 // The id the trail's own requests are filed under.
 let hubTrailGrant = "trail"
+let hubGiveBackGrant = "stream#give-back"
 
 // When a helper's access ends, chosen while making the link.
 enum HubHelperAccessEnds: Hashable {
@@ -43,8 +47,26 @@ extension Model {
         isHubJoined() && database.hub.role == "admin" && !hub.pending
     }
 
+    func hubRunsStream() -> Bool {
+        isHubJoined() && database.hub.role != "admin" && !hub.pending
+            && hub.state?.runsStream(database.hub.deviceId, now: hub.now()) == true
+    }
+
+    func hubManages() -> Bool {
+        hubIsOwner() || hubRunsStream()
+    }
+
+    func hubCrewPageNow() -> HubCrewPage {
+        hubCrewPage(state: hub.pending ? nil : hub.state,
+                    access: hub.access,
+                    me: database.hub.deviceId,
+                    role: database.hub.role,
+                    told: hub.sessionTold,
+                    when: hubWhen())
+    }
+
     func hubWhen() -> HubWhen {
-        HubWhen(now: Date())
+        HubWhen(now: hub.now())
     }
 
     func hubAccessPageNow() -> HubAccessPage? {
@@ -56,7 +78,7 @@ extension Model {
     }
 
     func hubOpen(_ screen: HubScreen) {
-        if screen == .makeHelper || screen == .makeMod {
+        if screen == .makeHelper || screen == .makeMod || screen == .makeCoOwner {
             hub.madeLink = nil
         }
         hub.path.append(screen)
@@ -71,7 +93,6 @@ extension Model {
     }
 
     // MARK: - Reading
-
     // Asks the hub for the list again. Calls while one is under way are
     // folded into one more.
     func hubRefreshAccess() {
@@ -80,7 +101,7 @@ extension Model {
             return
         }
         #endif
-        guard hubIsOwner(), let connection = hub.connection else {
+        guard hubManages(), let connection = hub.connection else {
             return
         }
         guard hub.accessRefreshTask == nil else {
@@ -148,11 +169,66 @@ extension Model {
             makeToast(title: HubWords.Crew.hid(by.name),
                       subTitle: String(localized: "Your privacy screen is on. Viewers don't see you."))
         }
+        let me = database.hub.deviceId
+        let now = hub.now()
+        if before?.runsStream(me, now: now) == true, !state.runsStream(me, now: now), database.hub.role != "admin" {
+            hubForgetAccess()
+        }
+        hubWatchHandover()
         if before?.devices != state.devices || before?.invites != state.invites || before?.mods != state.mods
             || before?.session != state.session
         {
             hubRefreshAccess()
         }
+    }
+
+    // A handover with a set end is over on this phone at that time, even
+    // when the hub's next state comes late: what it gave goes, and the
+    // panel says so once.
+    func hubWatchHandover() {
+        hub.handoverTimer?.cancel()
+        hub.handoverTimer = nil
+        let now = hub.now()
+        switch hubHandoverWatch(hub.state, me: database.hub.deviceId, role: database.hub.role, now: now) {
+        case .none:
+            break
+        case let .endsAt(end):
+            let delay = max(end.timeIntervalSince(now), 0) + 0.2
+            hub.handoverTimer = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled else {
+                    return
+                }
+                hub.handoverTimer = nil
+                hubWatchHandover()
+            }
+        case .ranOut:
+            guard let run = hub.state?.session.runBy, hub.handoverRanOut != run else {
+                return
+            }
+            hub.handoverRanOut = run
+            hub.sessionTold = nil
+            hubForgetAccess()
+            let line = HubWords.Crew.takenBack("time", role: database.hub.role)
+            hub.said = line
+            makeToast(title: line)
+            hub.objectWillChange.send()
+        }
+    }
+
+    func hubOwnerChangedLine(_ message: HubMessage) -> String? {
+        guard let device = message.decode("device", as: HubPersonRef.self)?.name, !device.isEmpty else {
+            return nil
+        }
+        let named = message.decode("person", as: HubPersonRef.self)?.name ?? ""
+        let person = named.isEmpty ? HubWords.Access.unnamedLower : named
+        let by = message.decode("by", as: HubParty.self)?.name ?? database.hub.name
+        if message.string("change") == "removed" {
+            return message.bool("person_left") == true ? HubWords.Crew.ownerRemovedLeft(by, device, person)
+                : HubWords.Crew.ownerRemoved(by, device, person)
+        }
+        return message.bool("new_person") == true ? HubWords.Crew.ownerAddedNew(person, device)
+            : HubWords.Crew.ownerAdded(device, person)
     }
 
     func hubHandleCrewMessage(_ message: HubMessage) {
@@ -166,37 +242,47 @@ extension Model {
             }
             hubRefreshAccess()
         case "device.pending":
-            guard hubIsOwner(), let device = message.decode("device", as: HubDevice.self) else {
+            guard hubManages(), let device = message.decode("device", as: HubDevice.self) else {
                 return
             }
-            makeToast(title: device.role == "helper" ? HubWords.Crew.wantsToHelp(device.name)
-                : HubWords.Crew.wantsToJoin(device.name),
+            makeToast(title: device.role == "admin" ? HubWords.Crew.wantsOwner(device.name)
+                : HubWords.Crew.wants(device.name, HubWords.Access.role(device.role).lowercased()),
                 subTitle: HubWords.Access.waiting)
             hubRefreshAccess()
         case "invite.closed", "invite.ticket":
             hubRefreshAccess()
         case "owner.changed":
-            // Every owner device hears when an owner device is added or removed.
-            guard hubIsOwner(), let device = message.decode("device", as: HubPersonRef.self)?.name else {
+            guard hubIsOwner(), let line = hubOwnerChangedLine(message) else {
                 return
             }
-            let person = message.decode("person", as: HubPersonRef.self)?.name ?? ""
-            let by = message.decode("by", as: HubParty.self)?.name ?? database.hub.name
-            if message.string("change") == "removed" {
-                makeToast(title: String(localized: "\(by) removed \(device)"))
-            } else if person.isEmpty {
-                makeToast(title: String(localized: "\(device) is now an owner device"))
-            } else {
-                makeToast(title: String(localized: "\(device) is now an owner device for \(person)"))
-            }
+            hub.said = line
+            makeToast(title: line)
             hubRefreshAccess()
+        case "stream.handed":
+            let by = message.decode("by", as: HubPersonRef.self)?.name ?? ""
+            if let allows = message.object["allows"] as? [String] {
+                hub.sessionTold = (allows, message.object["limits"] as? [String: String] ?? [:])
+            }
+            hub.said = HubWords.Crew.handed(by.isEmpty ? HubWords.Access.anOwnerDevice : by)
+            makeToast(title: String(localized: "\(by.isEmpty ? HubWords.Access.anOwnerDevice : by) handed you this stream"))
+            hubRefreshAccess()
+        case "stream.taken_back":
+            hub.sessionTold = nil
+            let line = HubWords.Crew.takenBack(message.string("why"), role: database.hub.role)
+            // A handover that ran out here first was already said.
+            if hub.said != line {
+                hub.said = line
+                makeToast(title: line)
+            }
+            if !hubIsOwner() {
+                hubForgetAccess()
+            }
         default:
             break
         }
     }
 
     // MARK: - One request for one row
-
     // A refusal, or a request that didn't reach the hub, is shown on that
     // row. The list itself only changes when the hub reports it.
     private func hubAccessRequest(_ grant: String, _ type: String, _ params: [String: Any]) {
@@ -217,12 +303,10 @@ extension Model {
                     // A new co-owner's device: the hub wants the owner's
                     // explicit yes. Ask for it; never send it unasked.
                     hub.accessConfirming = HubAccessConfirm(grant: grant, action: .coOwner)
-                case "second_owner_needed":
-                    hub.accessFailedLine = HubWords.Access.secondOwner
-                    hub.accessFailed = grant
                 default:
-                    hub.accessFailedLine = error.message.isEmpty ? HubWords.Access.failed
-                        : String(localized: "The hub didn't do that: \(error.message).")
+                    hub.accessFailedLine = HubWords.Crew.refused(error.code)
+                        ?? (error.message.isEmpty ? HubWords.Access.failed
+                            : String(localized: "The hub didn't do that: \(error.message)."))
                     hub.accessFailed = grant
                 }
             } catch {
@@ -255,6 +339,10 @@ extension Model {
 
     func hubTakeBackStream(_ device: String) {
         hubAccessRequest(device, "stream.take_back", [:])
+    }
+
+    func hubGiveBackStream() {
+        hubAccessRequest(hubGiveBackGrant, "stream.take_back", [:])
     }
 
     func hubClearTrail() {
@@ -292,34 +380,36 @@ extension Model {
             hubRefreshAccess()
             return nil
         } catch let error as HubRequestError {
-            switch error.code {
-            case "unavailable":
-                return HubWords.Crew.noModLinks
-            case "not_allowed":
-                return String(localized: "Only an owner device can make links.")
-            default:
-                return error.message.isEmpty ? HubWords.Access.failed : error.message
+            if error.code == "not_allowed" {
+                return HubWords.Crew.notOwner
             }
+            return HubWords.Crew.refused(error.code)
+                ?? (error.message.isEmpty ? HubWords.Access.failed : error.message)
         } catch {
             return HubWords.Access.failed
         }
     }
 
-    // A helper's link: works once, stays open for linkLasts, and the helper
-    // still waits for Allow. Returns what went wrong, or nil.
-    func hubMakeHelperLink(name: String, linkLasts: HubLinkDuration, ends: HubHelperAccessEnds) async -> String? {
+    func hubMakeHelperLink(name: String,
+                           linkLasts: HubLinkDuration,
+                           ends: HubHelperAccessEnds,
+                           handStream: Bool = false) async -> String?
+    {
         let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
         var params: [String: Any] = ["role": "helper", "via": "link", "expires_ms": linkLasts.milliseconds]
         if !label.isEmpty {
             params["for"] = String(label.prefix(64))
         }
-        switch ends {
+        switch handStream || !hubIsOwner() ? .stream : ends {
         case .stream:
             params["until_stream"] = true
         case let .after(duration):
             params["access_ms"] = duration.milliseconds
         case .never:
             break
+        }
+        if handStream {
+            params["hand_stream"] = true
         }
         return await hubMakeLink("invite.open", params) { reply in
             guard let link = reply.string("link") else {
@@ -347,6 +437,51 @@ extension Model {
                                name: label.isEmpty ? HubWords.Crew.modName : label,
                                link: link,
                                closesAt: reply.string("expires_at"))
+        }
+    }
+
+    func hubNameOwner(_ name: String) async -> String? {
+        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else {
+            return nil
+        }
+        guard let connection = hub.connection else {
+            return HubWords.Access.failed
+        }
+        do {
+            _ = try await connection.request("owner.name", ["name": String(label.prefix(64))])
+            hubRefreshAccess()
+            return nil
+        } catch let error as HubRequestError {
+            return error.message.isEmpty ? HubWords.Access.failed : error.message
+        } catch {
+            return HubWords.Access.failed
+        }
+    }
+
+    func hubMakeCoOwnerLink(name: String, person: HubPerson?, ownName: String) async -> String? {
+        if let failure = await hubNameOwner(ownName) {
+            return failure
+        }
+        let label = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var params: [String: Any] = ["role": "admin", "via": "link"]
+        if let person {
+            params["person"] = person.id
+        } else {
+            guard !label.isEmpty else {
+                return nil
+            }
+            params["co_owner"] = String(label.prefix(64))
+        }
+        let shown = person.map { $0.name?.isEmpty == false ? $0.name! : HubWords.Access.unnamed } ?? label
+        return await hubMakeLink("invite.open", params) { reply in
+            guard let link = reply.string("link") else {
+                return nil
+            }
+            return HubMadeLink(kind: .coOwner(known: person != nil),
+                               name: shown,
+                               link: link,
+                               closesAt: reply.string("closes_at") ?? reply.string("expires_at"))
         }
     }
 }

@@ -125,7 +125,7 @@ struct SettingsView: View {
                 NavigationLink {
                     HubPanelView(model: model, hub: model.hub)
                 } label: {
-                    Label("Rig", systemImage: "point.3.connected.trianglepath.dotted")
+                    Label(HubWords.Setup.panelTitle, systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 if database.showAllSettings {
                     NavigationLink {

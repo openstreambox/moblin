@@ -5,7 +5,6 @@ import Foundation
 // Only an owner device gets these from the hub. This file reads them and
 // puts them in words; what each role allows is built from the requests the
 // hub says that role may make, so a screen can't drift from what is true.
-
 // Who did something, or whom it was done to.
 struct HubParty: Codable, Equatable {
     // device | mod | invite | hub
@@ -173,6 +172,44 @@ struct HubGrant: Codable, Equatable, Identifiable {
     }
 }
 
+struct HubOwnerLink: Codable, Equatable, Identifiable {
+    var id: String
+    var device: HubPersonRef?
+    var state: String
+    var online: Bool?
+    var madeAt: String?
+    var openedAt: String?
+    var endsAt: String?
+    var can: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case device
+        case state
+        case online
+        case madeAt = "made_at"
+        case openedAt = "opened_at"
+        case endsAt = "ends_at"
+        case can
+    }
+}
+
+struct HubAccessAs: Codable, Equatable {
+    var id: String?
+    var name: String?
+    var role: String?
+    var runsStream: Bool?
+    var person: HubPersonRef?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case role
+        case runsStream = "runs_stream"
+        case person
+    }
+}
+
 struct HubTrailDetail: Codable, Equatable {
     var via: String?
     var waiting: Bool?
@@ -287,6 +324,8 @@ struct HubAccess: Codable, Equatable {
     var people: [HubPerson]?
     // What this owner may do to the list as a whole: clear_trail.
     var can: [String]?
+    var ownerLinks: [HubOwnerLink]?
+    var asWho: HubAccessAs?
 
     enum CodingKeys: String, CodingKey {
         case hub
@@ -296,6 +335,8 @@ struct HubAccess: Codable, Equatable {
         case trailMore = "trail_more"
         case people
         case can
+        case ownerLinks = "owner_links"
+        case asWho = "as"
     }
 }
 
@@ -304,6 +345,7 @@ struct HubMadeLink: Equatable {
     enum Kind: Equatable {
         case helper
         case mod
+        case coOwner(known: Bool)
     }
 
     let kind: Kind
@@ -337,6 +379,13 @@ struct HubWhen {
         return formatter
     }
 
+    func calm(_ iso: String?) -> String {
+        guard let date = HubWhen.date(iso), calendar.isDate(date, inSameDayAs: now) else {
+            return text(iso)
+        }
+        return formatter("jmm").string(from: date)
+    }
+
     // "today at 18:40", "tomorrow at 09:00", "Thursday 19 Nov at 18:40".
     func text(_ iso: String?) -> String {
         guard let date = HubWhen.date(iso) else {
@@ -358,6 +407,10 @@ struct HubWhen {
             return String(localized: "\(day) at \(time)")
         }
     }
+}
+
+func hubListAnd(_ items: [String]) -> String {
+    listAnd(items)
 }
 
 private func listAnd(_ items: [String]) -> String {
@@ -490,7 +543,8 @@ struct HubAccessRow: Equatable, Identifiable {
 
     // Read by VoiceOver as one sentence group.
     var spoken: String {
-        ([name, role, presence, allows, how, ends] + notes).compactMap { $0 }.joined(separator: ". ")
+        ([name, role, presence, allows, how, ends] + notes).compactMap { $0 }.filter { !$0.isEmpty }
+            .joined(separator: ". ")
     }
 }
 
@@ -552,6 +606,10 @@ private func inviteGives(_ grant: HubGrant) -> [String] {
         parts.append(HubWords.Access.inviteStream)
     }
     return parts.isEmpty ? [] : [HubWords.Access.inviteGives(listOr(parts))]
+}
+
+func hubGaveList(_ gave: HubGave?) -> String {
+    gaveList(gave)
 }
 
 private func gaveList(_ gave: HubGave?) -> String {
@@ -619,6 +677,9 @@ func hubAccessRow(_ grant: HubGrant, when: HubWhen, shared: Bool = false) -> Hub
         if grant.handsStream == true {
             notes.append(HubWords.Access.noteHandsStream)
         }
+        if grant.role == "admin", grant.newOwner != true, !can.contains("allow") {
+            notes.append(HubWords.Access.theirs(person))
+        }
     }
     if grant.runsStream == true {
         notes.append(HubWords.Access.noteRuns)
@@ -626,13 +687,15 @@ func hubAccessRow(_ grant: HubGrant, when: HubWhen, shared: Bool = false) -> Hub
     if grant.givenBySession == true {
         notes.append(HubWords.Access.noteBySession)
     }
-    if grant.carriesStream == true {
+    let card = grant.kind != "invite" && grant.can.isEmpty && grant.givenBy == nil && grant.joinedAt == nil
+        && grant.givenAt == nil && grant.isSelf != true
+    if grant.carriesStream == true, !card {
         notes.append(HubWords.Access.carries)
     }
     if grant.isSelf == true {
         notes.append(HubWords.Access.thisPhone)
     }
-    if grant.kind == "device", grant.role == "admin", grant.state == "active", !can.contains("end") {
+    if grant.kind == "device", grant.role == "admin", grant.state == "active", !can.contains("end"), !card {
         notes.append(HubWords.Access.lastOwner)
     }
     var hand: HubAccessRow.End?
@@ -657,8 +720,8 @@ func hubAccessRow(_ grant: HubGrant, when: HubWhen, shared: Bool = false) -> Hub
                         presence: presence,
                         here: grant.online == true,
                         allows: hubAllowsLine(grant.allows, limits: grant.limits ?? [:]),
-                        how: howLine(grant, when),
-                        ends: endsLine(grant, when),
+                        how: card ? "" : howLine(grant, when),
+                        ends: card ? "" : endsLine(grant, when),
                         notes: notes,
                         allow: can.contains("allow"),
                         allowConfirm: can.contains("allow") && grant.newOwner == true
@@ -813,6 +876,11 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
         return String(localized: "\(by) changed when \(name)'s access ends: \(ends)")
     case "access.link.made":
         return String(localized: "\(by) made a link to the web view of this list")
+    case "access.link.ended":
+        if let subject, !subject.id.isEmpty, subject.id == entry.by?.id {
+            return String(localized: "\(by) ended its link to the web view of this list")
+        }
+        return String(localized: "\(by) ended the link to the web view of this list that \(name.isEmpty ? HubWords.Access.anOwnerDevice : name) made")
     case "access.link.opened":
         let device = entry.by?.name.isEmpty == false ? entry.by!.name : HubWords.Access.anOwnerDevice
         return String(localized: "The link made on \(device) was opened in a browser")
@@ -828,7 +896,8 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
     case "stream.move":
         return String(localized: "\(by) moved the stream to \(name)")
     case "stream.end":
-        return String(localized: "\(by) ended the stream")
+        return detail.why == "restart" ? String(localized: "The hub restarted. The stream ended with it")
+            : String(localized: "\(by) ended the stream")
     case "stream.handed":
         let to = detail.forName != nil && detail.forName != name ? "\(detail.forName!) (\(name))" : name
         return detail.renewed == true
@@ -846,6 +915,8 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
             return String(localized: "\(name)'s handover ended at its set time\(lost)")
         case "removed":
             return String(localized: "\(name)'s handover ended when the device was removed\(lost)")
+        case "restart":
+            return String(localized: "The hub restarted. \(name)'s handover ended with it\(lost)")
         default:
             return String(localized: "\(name)'s handover ended: the stream was handed on\(lost)")
         }
@@ -880,6 +951,44 @@ struct HubAccessRunning: Equatable {
     // The device it was handed to, and the confirm for taking it back.
     let device: String?
     let takeBack: HubAccessRow.End?
+    var giveBack: HubAccessRow.End?
+}
+
+struct HubAccessLinkRow: Equatable, Identifiable {
+    let id: String
+    let name: String
+    let presence: String
+    let here: Bool
+    let facts: [String]
+    let end: HubAccessRow.End?
+
+    var spoken: String {
+        ([name, presence] + facts).joined(separator: ". ")
+    }
+}
+
+func hubGiveBackConfirm() -> HubAccessRow.End {
+    .init(label: HubWords.Crew.giveBack, confirm: HubWords.Crew.giveBackConfirm)
+}
+
+func hubAccessLinks(_ access: HubAccess, when: HubWhen) -> [HubAccessLinkRow] {
+    (access.ownerLinks ?? []).map { link in
+        let device = link.device?.name?.isEmpty == false ? link.device!.name! : HubWords.Access.anOwnerDevice
+        let opened = link.state != "open"
+        return HubAccessLinkRow(
+            id: link.id,
+            name: HubWords.Access.linkName(device),
+            presence: !opened ? HubWords.Access.linkNotOpened
+                : link.online == true ? HubWords.Access.linkOpen : HubWords.Access.linkClosed,
+            here: opened && link.online == true,
+            facts: [link.openedAt != nil
+                ? HubWords.Access.linkOpened(when.text(link.madeAt), when.text(link.openedAt))
+                : HubWords.Access.linkMade(when.text(link.madeAt)),
+                HubWords.Access.linkEnds(when.text(link.endsAt))],
+            end: link.can?.contains("end") == true
+                ? .init(label: HubWords.Access.endNow, confirm: HubWords.Access.linkConfirm) : nil
+        )
+    }
 }
 
 struct HubTrailLine: Equatable, Identifiable {
@@ -897,6 +1006,7 @@ struct HubAccessPage: Equatable {
     let line: String
     let running: HubAccessRunning?
     let sections: [HubAccessSection]
+    let links: [HubAccessLinkRow]
     let trail: [HubTrailLine]
     let more: Bool
     // An owner may clear the trail.
@@ -920,7 +1030,11 @@ func hubAccessPage(_ access: HubAccess?,
         return nil
     }
     let people = access.people ?? []
-    let shared = people.count > 1
+    // A handover past its end is over here, even before the hub says so.
+    let expired = access.stream.runBy.map { $0.kind == "handed" && !hubHandoverOn($0.endsAt, now: when.now) }
+        ?? false
+    let guest = access.asWho?.runsStream == true && access.asWho?.role != "admin" && !expired
+    let shared = people.count > 1 || guest
     func rows(_ test: (HubGrant) -> Bool) -> [HubAccessRow] {
         access.grants.filter(test).map { hubAccessRow($0, when: when, shared: shared) }
     }
@@ -942,7 +1056,7 @@ func hubAccessPage(_ access: HubAccess?,
         }
         return HubAccessSection(id: "owner-\(person.id)",
                                 title: title,
-                                tag: shared ? HubWords.Access.coOwner : HubWords.Access.owner,
+                                tag: people.count > 1 ? HubWords.Access.coOwner : HubWords.Access.owner,
                                 rows: rows { device($0) && $0.role != "helper" && owner($0) == person })
     }
     let helpers = rows { device($0) && $0.role == "helper" }
@@ -952,14 +1066,15 @@ func hubAccessPage(_ access: HubAccess?,
         HubAccessSection(id: "waiting", title: HubWords.Access.waiting, rows: waiting),
     ] + owned + [
         HubAccessSection(id: "yours",
-                         title: people.isEmpty ? HubWords.Access.yours : HubWords.Access.others,
+                         title: guest ? HubWords.Crew.groupDevices
+                             : people.isEmpty ? HubWords.Access.yours : HubWords.Access.others,
                          rows: unowned),
         HubAccessSection(id: "helpers", title: HubWords.Access.helpers, rows: helpers),
         HubAccessSection(id: "mods", title: HubWords.Access.mods, rows: mods),
         HubAccessSection(id: "invites", title: HubWords.Access.invites, rows: invites),
     ]).filter { !$0.rows.isEmpty }
     var running: HubAccessRunning?
-    if let run = access.stream.runBy, run.kind == "handed" {
+    if let run = access.stream.runBy, run.kind == "handed", !expired {
         let device = run.device?.name ?? ""
         let gave = gaveList(run.gave)
         var facts = [HubWords.Access.runBy(run.givenBy?.name?.isEmpty == false ? run.givenBy!.name!
@@ -971,14 +1086,16 @@ func hubAccessPage(_ access: HubAccess?,
         }
         let name = run.forName?.isEmpty == false ? run.forName! : device
         let canTakeBack = access.grants.first { $0.id == run.device?.id }?.can.contains("take_back") == true
+        let mine = access.asWho?.runsStream == true && access.asWho?.id == run.device?.id
         running = HubAccessRunning(
             line: run.forName?.isEmpty == false ? HubWords.Access.runHanded(run.forName!, device)
                 : HubWords.Access.runHandedDevice(device),
             facts: facts,
             device: run.device?.id,
-            takeBack: canTakeBack ? .init(label: HubWords.Access.takeBack,
-                                          confirm: gave.isEmpty ? HubWords.Access.confirmTakeBack(name)
-                                              : HubWords.Access.confirmTakeBackGave(name, gave)) : nil
+            takeBack: canTakeBack && !mine ? .init(label: HubWords.Access.takeBack,
+                                                   confirm: gave.isEmpty ? HubWords.Access.confirmTakeBack(name)
+                                                       : HubWords.Access.confirmTakeBackGave(name, gave)) : nil,
+            giveBack: mine ? hubGiveBackConfirm() : nil
         )
     } else if access.people != nil {
         let line: String
@@ -992,7 +1109,7 @@ func hubAccessPage(_ access: HubAccess?,
         running = HubAccessRunning(line: line, facts: [], device: nil, takeBack: nil)
     }
     let counts = [
-        (shared ? people.count : 0, String(localized: "owner"), String(localized: "owners")),
+        (people.count > 1 ? people.count : 0, String(localized: "owner"), String(localized: "owners")),
         (yours.count, String(localized: "device"), String(localized: "devices")),
         (helpers.count, String(localized: "helper"), String(localized: "helpers")),
         (mods.count, String(localized: "mod"), String(localized: "mods")),
@@ -1023,6 +1140,7 @@ func hubAccessPage(_ access: HubAccess?,
                          line: connected ? line : HubWords.Access.unknownLine,
                          running: running,
                          sections: sections,
+                         links: hubAccessLinks(access, when: when),
                          trail: entries.map {
                              HubTrailLine(id: $0.seq, text: hubTrailLine($0, when: when), at: when.text($0.at))
                          },

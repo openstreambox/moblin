@@ -38,6 +38,18 @@ struct HubDevice: Codable, Equatable {
     var allowed: Bool
     var online: Bool?
     var feed: Bool?
+    var runsStream: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case kind
+        case role
+        case allowed
+        case online
+        case feed
+        case runsStream = "runs_stream"
+    }
 }
 
 struct HubPrivacy: Codable, Equatable {
@@ -58,6 +70,49 @@ struct HubOutput: Codable, Equatable {
     var state: String
 }
 
+struct HubSessionRunBy: Codable, Equatable {
+    var device: String
+    var since: String?
+    var endsAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case device
+        case since
+        case endsAt = "ends_at"
+    }
+}
+
+// Whether a handover that ends at endsAt is still on at now. No end means
+// it lasts until the stream ends. An end the phone can't read counts as
+// passed, so nothing is offered on a guess.
+func hubHandoverOn(_ endsAt: String?, now: Date) -> Bool {
+    guard let endsAt else {
+        return true
+    }
+    guard let end = HubWhen.date(endsAt) else {
+        return false
+    }
+    return now < end
+}
+
+// What this phone has to watch about its own handover: nothing, the time
+// it ends, or that it has ended although the hub's state still names it.
+enum HubHandoverWatch: Equatable {
+    case none
+    case endsAt(Date)
+    case ranOut
+}
+
+func hubHandoverWatch(_ state: HubState?, me: String?, role: String?, now: Date) -> HubHandoverWatch {
+    guard role != "admin", let me, let state, let run = state.session.runBy, run.device == me else {
+        return .none
+    }
+    guard state.runsStream(me, now: now) else {
+        return .ranOut
+    }
+    return run.endsAt.flatMap { HubWhen.date($0) }.map { .endsAt($0) } ?? .none
+}
+
 struct HubSession: Codable, Equatable {
     var id: String
     // ready | live | ended
@@ -65,6 +120,16 @@ struct HubSession: Codable, Equatable {
     var program: String?
     var privacy: HubPrivacy
     var output: HubOutput?
+    var runBy: HubSessionRunBy?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case live
+        case program
+        case privacy
+        case output
+        case runBy = "run_by"
+    }
 }
 
 struct HubState: Codable, Equatable {
@@ -81,6 +146,16 @@ struct HubState: Codable, Equatable {
 
     func device(_ id: String) -> HubDevice? {
         devices.first { $0.id == id }
+    }
+
+    // Whether the hub handed this device the stream and that handover is
+    // still on at now. The hub ends it at its set time, but its next state
+    // can come late; until then the phone already knows it's over.
+    func runsStream(_ device: String?, now: Date) -> Bool {
+        guard let device, let run = session.runBy, run.device == device else {
+            return false
+        }
+        return hubHandoverOn(run.endsAt, now: now)
     }
 
     // Live means the hub's output is live: the platform shows the stream.
@@ -341,7 +416,7 @@ func hubStatus(state: HubState?, me: String?, connected: Bool, pending: Bool) ->
     if pending {
         return HubStatus(kind: .ready,
                          title: String(localized: "Waiting for Allow"),
-                         line: String(localized: "Someone on the rig has to allow this device."))
+                         line: HubWords.Setup.waitingLine)
     }
     guard connected, let state else {
         return HubStatus(kind: .unknown,
@@ -517,7 +592,8 @@ func hubControls(state: HubState?,
                  me: String?,
                  role: String?,
                  sending: Bool,
-                 requested: Set<HubRequestKind>) -> HubControls
+                 requested: Set<HubRequestKind>,
+                 now: Date) -> HubControls
 {
     guard let state, let me else {
         return .none
@@ -547,7 +623,8 @@ func hubControls(state: HubState?,
             controls.privacy = .showRequested
         } else {
             controls.privacy = .hidden(generation: session.privacy.generation,
-                                       canShow: role == "admin" || role == "member")
+                                       canShow: role == "admin" || role == "member"
+                                           || state.runsStream(me, now: now))
         }
     } else {
         controls.privacy = requested.contains(.hide) ? .hideRequested : .hide
