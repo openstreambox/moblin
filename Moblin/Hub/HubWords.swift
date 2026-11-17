@@ -10,11 +10,15 @@ enum HubWords {
     static let setupName = String(localized: "your streaming setup")
     static let setupShort = String(localized: "setup")
 
+    // The name of the thing on screen. The OSB brand build (OSB_BRAND, set
+    // in Config/Fork.xcconfig) says "setup"; any other build keeps the
+    // word "rig" that the panel had before, so it doesn't change unasked.
     enum Setup {
+        #if OSB_BRAND
+        static let brand = true
         static let panelTitle = String(localized: "Setup")
         static let yours = String(localized: "Your setup")
         static let joinTitle = String(localized: "Join your setup")
-        static let joinLine = String(localized: "Scan the code on your dashboard, or open the link you were sent.")
         static let waitingLine = String(localized: "Someone in the setup has to allow this device.")
         static let crewLine =
             String(localized: "Everyone and everything in your streaming setup. Each device has its own key.")
@@ -30,10 +34,57 @@ enum HubWords {
         static let sentLink = String(localized: "Or tap the link in the message someone in the setup sent you.")
         static let joinHint =
             String(localized: "Nothing to type. The code is a one-time ticket, and your setup fills in this phone's stream settings.")
+        static let pendingHint =
+            String(localized: "The link was sent, not scanned off the setup's own screen, so someone in the setup confirms it's you. You can close this; the setup panel shows when you're in.")
+        static let opensPanel = String(localized: "Opens the setup panel")
+        static let emptyCoOwners = String(localized: "Nobody else owns this setup.")
+        static let coOwnerLine =
+            String(localized: "For someone who shares this setup for good, like a housemate. A co-owner can do everything you can, including removing your devices.")
 
         static func streamName(_ hub: String) -> String {
             String(localized: "Setup: \(hub)")
         }
+
+        static func statusLabel(_ spoken: String) -> String {
+            String(localized: "Setup: \(spoken)")
+        }
+        #else
+        static let brand = false
+        static let panelTitle = String(localized: "Rig")
+        static let yours = String(localized: "Your rig")
+        static let joinTitle = String(localized: "Join your rig")
+        static let waitingLine = String(localized: "Someone on the rig has to allow this device.")
+        static let crewLine =
+            String(localized: "Everyone and everything on your rig. Each device has its own key.")
+        static let crewLineHelper = String(localized: "Everyone on the streamer's rig.")
+        static let setBy = String(localized: "Set by your rig")
+        static let leave = String(localized: "Leave this rig")
+        static let leaveLine = String(localized: "The stream settings from the rig are removed from this phone.")
+        static let leaveHint =
+            String(localized: "Nothing to type or change. Leaving the rig removes it from this phone.")
+        static let settingsGone = String(localized: "Its stream settings from the rig are gone.")
+        static let notASetupCode = String(localized: "This code isn't from a rig hub")
+        static let cantJoinWhileStreaming = String(localized: "Can't join a rig while streaming or recording")
+        static let sentLink = String(localized: "Or tap the link in the message someone on the rig sent you.")
+        static let joinHint =
+            String(localized: "Nothing to type. The code is a one-time ticket, and your rig fills in this phone's stream settings.")
+        static let pendingHint =
+            String(localized: "The link was sent, not scanned off the rig's own screen, so someone on the rig confirms it's you. You can close this; the rig panel shows when you're in.")
+        static let opensPanel = String(localized: "Opens the rig panel")
+        static let emptyCoOwners = String(localized: "Nobody else owns this rig.")
+        static let coOwnerLine =
+            String(localized: "For someone who shares this rig for good, like a housemate. A co-owner can do everything you can, including removing your devices.")
+
+        static func streamName(_ hub: String) -> String {
+            String(localized: "Rig: \(hub)")
+        }
+
+        static func statusLabel(_ spoken: String) -> String {
+            String(localized: "Rig: \(spoken)")
+        }
+        #endif
+
+        static let joinLine = String(localized: "Scan the code on your dashboard, or open the link you were sent.")
     }
 
     enum Crew {
@@ -69,7 +120,6 @@ enum HubWords {
         static let addCoOwner = String(localized: "Add a co-owner")
         static let emptyHelpers = String(localized: "No helpers. A helper gets the status, HIDE and Move stream.")
         static let emptyMods = String(localized: "No mods. A mod gets the status and HIDE on a web page.")
-        static let emptyCoOwners = String(localized: "Nobody else owns this setup.")
 
         static func hiddenBy(_ name: String) -> String {
             String(localized: "Hidden by \(name)")
@@ -142,8 +192,6 @@ enum HubWords {
             String(localized: "The link ends \(when).")
         }
 
-        static let coOwnerLine =
-            String(localized: "For someone who shares this setup for good, like a housemate. A co-owner can do everything you can, including removing your devices.")
         static let coOwnerName = String(localized: "Their name")
         static let yourName = String(localized: "Your name, as the others see it")
         static let yourNameHint = String(localized: "So the list reads by person, not by device.")
@@ -190,7 +238,10 @@ enum HubWords {
             String(localized: "\(by) handed you this stream. You can go live, move, end, hide and show, and let helpers and mods in for it.")
         }
 
-        static func takenBack(_ why: String?) -> String {
+        // role is the device's own role, the one it has again once the
+        // handover is over: a helper or a member device can be handed a
+        // stream.
+        static func takenBack(_ why: String?, role: String) -> String {
             switch why {
             case "returned":
                 String(localized: "You gave the stream back.")
@@ -200,8 +251,10 @@ enum HubWords {
                 String(localized: "Your handover ran out at its set time.")
             case "handed_on":
                 String(localized: "The stream was handed to someone else.")
-            case "taken_back":
+            case "taken_back" where role == "helper":
                 String(localized: "The stream was taken back. You are a helper again.")
+            case "taken_back":
+                String(localized: "The stream was taken back. This device keeps what it could do before.")
             default:
                 String(localized: "Your handover ended.")
             }

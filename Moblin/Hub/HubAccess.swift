@@ -1030,7 +1030,10 @@ func hubAccessPage(_ access: HubAccess?,
         return nil
     }
     let people = access.people ?? []
-    let guest = access.asWho?.runsStream == true && access.asWho?.role != "admin"
+    // A handover past its end is over here, even before the hub says so.
+    let expired = access.stream.runBy.map { $0.kind == "handed" && !hubHandoverOn($0.endsAt, now: when.now) }
+        ?? false
+    let guest = access.asWho?.runsStream == true && access.asWho?.role != "admin" && !expired
     let shared = people.count > 1 || guest
     func rows(_ test: (HubGrant) -> Bool) -> [HubAccessRow] {
         access.grants.filter(test).map { hubAccessRow($0, when: when, shared: shared) }
@@ -1071,7 +1074,7 @@ func hubAccessPage(_ access: HubAccess?,
         HubAccessSection(id: "invites", title: HubWords.Access.invites, rows: invites),
     ]).filter { !$0.rows.isEmpty }
     var running: HubAccessRunning?
-    if let run = access.stream.runBy, run.kind == "handed" {
+    if let run = access.stream.runBy, run.kind == "handed", !expired {
         let device = run.device?.name ?? ""
         let gave = gaveList(run.gave)
         var facts = [HubWords.Access.runBy(run.givenBy?.name?.isEmpty == false ? run.givenBy!.name!

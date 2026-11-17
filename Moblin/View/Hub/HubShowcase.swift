@@ -470,7 +470,7 @@ extension Model {
         case "session-taken-back":
             state.devices[0].runsStream = false
             state.session.runBy = nil
-            hub.said = HubWords.Crew.takenBack("taken_back")
+            hub.said = HubWords.Crew.takenBack("taken_back", role: "helper")
         default:
             return false
         }

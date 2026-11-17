@@ -49,7 +49,7 @@ extension Model {
 
     func hubRunsStream() -> Bool {
         isHubJoined() && database.hub.role != "admin" && !hub.pending
-            && hub.state?.runsStream(database.hub.deviceId) == true
+            && hub.state?.runsStream(database.hub.deviceId, now: hub.now()) == true
     }
 
     func hubManages() -> Bool {
@@ -66,7 +66,7 @@ extension Model {
     }
 
     func hubWhen() -> HubWhen {
-        HubWhen(now: Date())
+        HubWhen(now: hub.now())
     }
 
     func hubAccessPageNow() -> HubAccessPage? {
@@ -170,13 +170,49 @@ extension Model {
                       subTitle: String(localized: "Your privacy screen is on. Viewers don't see you."))
         }
         let me = database.hub.deviceId
-        if before?.runsStream(me) == true, !state.runsStream(me), database.hub.role != "admin" {
+        let now = hub.now()
+        if before?.runsStream(me, now: now) == true, !state.runsStream(me, now: now), database.hub.role != "admin" {
             hubForgetAccess()
         }
+        hubWatchHandover()
         if before?.devices != state.devices || before?.invites != state.invites || before?.mods != state.mods
             || before?.session != state.session
         {
             hubRefreshAccess()
+        }
+    }
+
+    // A handover with a set end is over on this phone at that time, even
+    // when the hub's next state comes late: what it gave goes, and the
+    // panel says so once.
+    func hubWatchHandover() {
+        hub.handoverTimer?.cancel()
+        hub.handoverTimer = nil
+        let now = hub.now()
+        switch hubHandoverWatch(hub.state, me: database.hub.deviceId, role: database.hub.role, now: now) {
+        case .none:
+            break
+        case let .endsAt(end):
+            let delay = max(end.timeIntervalSince(now), 0) + 0.2
+            hub.handoverTimer = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                guard !Task.isCancelled else {
+                    return
+                }
+                hub.handoverTimer = nil
+                hubWatchHandover()
+            }
+        case .ranOut:
+            guard let run = hub.state?.session.runBy, hub.handoverRanOut != run else {
+                return
+            }
+            hub.handoverRanOut = run
+            hub.sessionTold = nil
+            hubForgetAccess()
+            let line = HubWords.Crew.takenBack("time", role: database.hub.role)
+            hub.said = line
+            makeToast(title: line)
+            hub.objectWillChange.send()
         }
     }
 
@@ -232,8 +268,12 @@ extension Model {
             hubRefreshAccess()
         case "stream.taken_back":
             hub.sessionTold = nil
-            hub.said = HubWords.Crew.takenBack(message.string("why"))
-            makeToast(title: HubWords.Crew.takenBack(message.string("why")))
+            let line = HubWords.Crew.takenBack(message.string("why"), role: database.hub.role)
+            // A handover that ran out here first was already said.
+            if hub.said != line {
+                hub.said = line
+                makeToast(title: line)
+            }
             if !hubIsOwner() {
                 hubForgetAccess()
             }

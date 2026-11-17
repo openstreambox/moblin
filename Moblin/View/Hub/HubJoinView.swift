@@ -119,7 +119,7 @@ struct HubJoinView: View {
                     case let .pending(name):
                         HubJoinProgressView(title: String(localized: "Waiting for Allow"),
                                             line: String(localized: "Someone on \(name) has to allow this phone."))
-                        Text("The link was sent, not scanned off the setup's own screen, so someone in the setup confirms it's you. You can close this; the setup panel shows when you're in.")
+                        Text(HubWords.Setup.pendingHint)
                             .font(.footnote)
                             .foregroundStyle(HubLook.textMuted)
                             .fixedSize(horizontal: false, vertical: true)

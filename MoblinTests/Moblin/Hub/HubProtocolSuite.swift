@@ -213,7 +213,7 @@ struct HubProtocolSuite {
                           sending: Bool = false,
                           requested: Set<HubRequestKind> = []) -> HubControls
     {
-        hubControls(state: state, me: "dev-phone", role: role, sending: sending, requested: requested)
+        hubControls(state: state, me: "dev-phone", role: role, sending: sending, requested: requested, now: Date())
     }
 
     @Test
@@ -233,7 +233,8 @@ struct HubProtocolSuite {
         #expect(controls(hidden).privacy == .hidden(generation: 4, canShow: true))
         #expect(controls(hidden, role: "helper").privacy == .hidden(generation: 4, canShow: false))
         #expect(controls(hidden).move == .onAir)
-        #expect(hubControls(state: nil, me: "dev-phone", role: "member", sending: false, requested: []) == .none)
+        #expect(hubControls(state: nil, me: "dev-phone", role: "member", sending: false, requested: [], now: Date())
+            == .none)
     }
 
     @Test

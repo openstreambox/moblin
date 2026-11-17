@@ -25,8 +25,8 @@ struct HubStatusRowView: View {
             model.toggleShowingPanel(type: .rig, panel: .rig)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel(String(localized: "Setup: \(status.spoken)"))
-        .accessibilityHint(String(localized: "Opens the setup panel"))
+        .accessibilityLabel(HubWords.Setup.statusLabel(status.spoken))
+        .accessibilityHint(HubWords.Setup.opensPanel)
         .accessibilityAddTraits([.isButton, .updatesFrequently])
     }
 }

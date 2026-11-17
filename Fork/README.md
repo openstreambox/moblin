@@ -22,8 +22,10 @@ deleted. The upstream defaults stay in `Config/Base.xcconfig`, and
   `Fork/Icons/render.sh` renders from the SVG sources there.
 - `MOBLIN_HIDDEN_FEATURES`: Swift compilation conditions that hide features.
 - `MOBLIN_FORK_FEATURES = OSB_BRAND`: the setup panel and the join sheet use the
-  OpenStreamBox look (paper and forest ink, the latch-case mark). Without it
-  they use the system's colours and a system symbol.
+  OpenStreamBox look (paper and forest ink, the latch-case mark) and call the
+  whole thing a "setup". Without it they use the system's colours and a
+  system symbol, and keep the word "rig" in Settings, the quick button, the
+  panel, the join sheet and the name of the stream the hub sets up.
 
 ## What is hidden, and why
 
@@ -39,11 +41,12 @@ Features the fork doesn't need for its first use sit behind Moblin's own
 
 ## The setup screens
 
-The app says "setup" for the gear and the people that stream together. The
-setup panel, the join sheet and the one status line over the camera are in
-`Moblin/View/Hub/`. Their colours, shapes and sizes are in `HubLook.swift`, and
-the wording and the rules for what each control shows are in
-`Moblin/Hub/HubProtocol.swift`, with tests in `MoblinTests/Moblin/Hub/`.
+The OSB build says "setup" for the gear and the people that stream together (a
+build without `OSB_BRAND` says "rig"). The setup panel, the join sheet and the
+one status line over the camera are in `Moblin/View/Hub/`. Their colours,
+shapes and sizes are in `HubLook.swift`, and the wording and the rules for
+what each control shows are in `Moblin/Hub/HubProtocol.swift`, with tests in
+`MoblinTests/Moblin/Hub/`.
 
 - "Live" is only said for the hub's output to the platform. A phone reaching
   the hub is Connect and Connected, and changing what viewers see is Move
@@ -85,7 +88,9 @@ list and its wording in `Moblin/Hub/HubAccess.swift`.
   or on their row, and sees who runs it, until when and what they let in,
   with Take back. The phone that was handed a stream says so, says what it may
   do and until when, adds helpers and mods for that stream only, and gives the
-  stream back.
+  stream back. When the handover has a set end, the phone drops those
+  controls at that time by its own clock, even if the hub's next state comes
+  late; its own role's controls stay.
 - **Who has access:** every device, helper, mod and unused invite with its
   role, what it may do in a plain sentence, how it joined, who gave it and when
   it ends; Allow, Remove or End now with one confirm, Change when it ends, and

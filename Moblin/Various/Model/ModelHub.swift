@@ -98,6 +98,13 @@ class HubProvider: ObservableObject {
     @Published var path: [HubScreen] = []
     @Published var said: String?
     var sessionTold: (allows: [String], limits: [String: String])?
+    // The clock a handover's end is checked against.
+    var now: () -> Date = { Date() }
+    // Wakes the panel when this phone's handover reaches its end.
+    var handoverTimer: Task<Void, Never>?
+    // The handover already said to have run out, so a late state naming
+    // it again says nothing new.
+    var handoverRanOut: HubSessionRunBy?
     var accessRefreshTask: Task<Void, Never>?
     var accessRefreshAgain = false
 
@@ -167,7 +174,8 @@ extension Model {
                            me: database.hub.deviceId,
                            role: database.hub.role,
                            sending: hubIsSending(),
-                           requested: hub.requested)
+                           requested: hub.requested,
+                           now: hub.now())
     }
 
     // A request is open until the hub's state shows it, or the hub stays
@@ -549,6 +557,9 @@ extension Model {
         hub.pending = false
         hub.sessionTold = nil
         hub.said = nil
+        hub.handoverTimer?.cancel()
+        hub.handoverTimer = nil
+        hub.handoverRanOut = nil
         hubForgetAccess()
         storeSettings()
     }

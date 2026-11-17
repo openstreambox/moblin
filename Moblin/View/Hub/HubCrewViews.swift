@@ -832,7 +832,7 @@ struct HubMakeCoOwnerLinkView: View {
                         HubNameField(label: HubWords.Crew.coOwnerName, text: $name)
                     }
                 } footer: {
-                    Text(HubWords.Crew.coOwnerLine)
+                    Text(HubWords.Setup.coOwnerLine)
                 }
                 .listRowBackground(HubLook.surface)
                 if page.ownName?.isEmpty == true {
