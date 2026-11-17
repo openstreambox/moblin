@@ -41,7 +41,9 @@ enum HubJoinFailure: Equatable {
         case .expired:
             String(localized: "A code works once, for a short time. Scan the one that's on screen now.")
         case .unreachable, .timeout:
-            String(localized: "Nothing was changed on this phone. Check that it's online, then scan a fresh code.")
+            String(
+                localized: "Nothing was changed on this phone. Check that it's online, then scan a fresh code."
+            )
         case .wrongHub:
             String(localized: "Nothing was sent from this phone. Scan the code on your own dashboard.")
         case .noKey:
@@ -224,7 +226,9 @@ extension Model {
             }
             hubClearRequested(kind)
             makeWarningToast(title: String(localized: "The hub hasn't confirmed that"),
-                             subTitle: String(localized: "Nothing is assumed. The status line shows what the hub reports."))
+                             subTitle: String(
+                                 localized: "Nothing is assumed. The status line shows what the hub reports."
+                             ))
         }
     }
 
@@ -280,12 +284,24 @@ extension Model {
                 let connection = try await HubConnection.join(link: link,
                                                               key: key,
                                                               name: UIDevice.current.name,
-                                                              kind: "phone")
+                                                              kind: "phone",
+                                                              validateWelcome: { message, hubKey in
+                                                                  _ = try hubValidateEvidence(
+                                                                      message,
+                                                                      hubKey: hubBase64UrlEncode(hubKey),
+                                                                      ownership: nil,
+                                                                      epoch: nil,
+                                                                      seen: nil
+                                                                  )
+                                                              })
                 guard HubKeychain.saveDeviceKey(key) else {
                     connection.close()
                     hub.joinState = .failed(.noKey)
                     return
                 }
+                database.hub = SettingsHub()
+                hub.seen = nil
+                HubSeenStore.delete()
                 database.hub.name = name
                 database.hub.urls = link.hub.map(\.absoluteString)
                 database.hub.hubKey = hubBase64UrlEncode(connection.hubKey)
@@ -374,6 +390,8 @@ extension Model {
             return
         }
         let settings = database.hub
+        let setup = settings.hubKey + ":" + settings.deviceId
+        hub.seen = HubSeen.scoped(hub.seen, setup: setup)
         let urls = hubDialList(proven: settings.provenUrl,
                                join: settings.urls,
                                hub: settings.hubUrls,
@@ -388,9 +406,14 @@ extension Model {
                     key: key,
                     hubKey: hubKey,
                     hello: hello,
+                    validateWelcome: { message in
+                        _ = try hubValidateEvidence(message, hubKey: settings.hubKey,
+                                                    ownership: settings.ownership, epoch: settings.epoch,
+                                                    seen: self.hub.seen)
+                    },
                     refusalCounts: { hubRefusalCounts($0.absoluteString, proven: proven, join: join) }
                 )
-                guard isHubJoined() else {
+                guard isHubJoined(), database.hub.hubKey + ":" + database.hub.deviceId == setup else {
                     connection.close()
                     return
                 }
@@ -477,6 +500,16 @@ extension Model {
     }
 
     private func handleHubMessage(_ message: HubMessage) {
+        if message.type == "welcome" || message.type == "state" {
+            do {
+                _ = try hubValidateEvidence(message, hubKey: database.hub.hubKey,
+                                            ownership: database.hub.ownership, epoch: database.hub.epoch,
+                                            seen: hub.seen)
+            } catch {
+                hub.connection?.close()
+                return
+            }
+        }
         if message.type != "welcome", message.type != "state" {
             hubHeard()
         }
@@ -522,6 +555,7 @@ extension Model {
     }
 
     // MARK: - Settings the rig fills in
+
     // Writes the provisioned stream (SRT, or SRTLA when Moblink bonding is
     // on) into one Moblin stream marked as the rig's, selects it, and sets
     // remote control when the hub offers it. Nothing is shown to copy.
@@ -633,6 +667,7 @@ extension Model {
     }
 
     // MARK: - Controls
+
     // Connect: send this phone's picture to the hub and let it check it.
     // Viewers see nothing new.
     func hubConnect() {
@@ -654,9 +689,9 @@ extension Model {
     // sent to the phone's slot from elsewhere can stand in.
     private func hubDebugNoSend() -> Bool {
         #if DEBUG
-        return UserDefaults.standard.bool(forKey: "HubDebugNoSend")
+        UserDefaults.standard.bool(forKey: "HubDebugNoSend")
         #else
-        return false
+        false
         #endif
     }
 
@@ -746,11 +781,16 @@ extension Model {
                                      subTitle: String(localized: "The privacy screen stays on."))
                 case "slow_down" where kind == .hide:
                     makeToast(title: HubWords.Crew.alreadyHidden,
-                              subTitle: String(localized: "Your privacy screen is on. Viewers don't see you."))
+                              subTitle: String(
+                                  localized: "Your privacy screen is on. Viewers don't see you."
+                              ))
                 case "feed_not_checked":
                     makeWarningToast(title: String(localized: "Connect this phone first"))
                 default:
-                    makeErrorToast(title: String(localized: "The hub didn't do that"), subTitle: error.message)
+                    makeErrorToast(
+                        title: String(localized: "The hub didn't do that"),
+                        subTitle: error.message
+                    )
                 }
             } catch {
                 hubClearRequested(kind)

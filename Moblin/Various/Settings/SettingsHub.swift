@@ -16,6 +16,7 @@ class SettingsHub: Codable, ObservableObject {
     var hubUrls: [String] = []
     var standbyUrls: [String] = []
     var provenUrl: String = ""
+    var ownership: HubOwnership?
     var epoch: Int?
 
     init() {}
@@ -31,6 +32,7 @@ class SettingsHub: Codable, ObservableObject {
         case hubUrls
         case standbyUrls
         case provenUrl
+        case ownership
         case epoch
     }
 
@@ -46,6 +48,7 @@ class SettingsHub: Codable, ObservableObject {
         try container.encode(.hubUrls, hubUrls)
         try container.encode(.standbyUrls, standbyUrls)
         try container.encode(.provenUrl, provenUrl)
+        try container.encode(.ownership, ownership)
         try container.encode(.epoch, epoch)
     }
 
@@ -61,6 +64,7 @@ class SettingsHub: Codable, ObservableObject {
         hubUrls = container.decode(.hubUrls, [String].self, [])
         standbyUrls = container.decode(.standbyUrls, [String].self, [])
         provenUrl = container.decode(.provenUrl, String.self, "")
+        ownership = container.decode(.ownership, HubOwnership?.self, nil)
         epoch = container.decode(.epoch, Int?.self, nil)
     }
 

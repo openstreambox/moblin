@@ -70,6 +70,73 @@ private func removedLine(_ name: String, minutes: Double) -> String {
 
 struct HubSeenSuite {
     @Test
+    func staleStateCannotInventRemovalOrDowngradePersistedHello() throws {
+        var seen: HubSeen?
+        HubSeen.note(&seen, state: state(50, ["owner", "new-device"]), now: 1000)
+        HubSeen.note(&seen, state: state(40, ["owner"]), now: 2000)
+        let saved = try JSONEncoder().encode(seen)
+        let restored = try JSONDecoder().decode(HubSeen.self, from: saved)
+        let hello = HubSeen.hello(restored, now: 3000)
+        #expect((hello["seen"] as? [String: Int])?["access_seq"] == 50)
+        #expect(restored.removed.isEmpty)
+        #expect(restored.devices["new-device"] != nil)
+    }
+
+    @Test
+    func reconnectExpiresRemovalsWithoutAnotherState() throws {
+        var seen = HubSeen(accessSeq: 50, heardAt: 1000)
+        let now = 3 * hubSeenRemovedKeepMs
+        seen.removed = [
+            HubSeenRemoval(device: "old", at: now - 2 * hubSeenRemovedKeepMs),
+            HubSeenRemoval(device: "recent", at: now - 1000),
+            HubSeenRemoval(device: "future", at: now + 1000),
+        ]
+        let restored = try JSONDecoder().decode(HubSeen.self, from: JSONEncoder().encode(seen))
+        let removed = HubSeen.hello(restored, now: now)["removed"] as? [[String: Any]]
+        #expect(removed?.compactMap { $0["device"] as? String } == ["recent"])
+        #expect(restored.accessSeq == 50)
+    }
+
+    @Test
+    func takeoverRemovalCountDoesNotDenyUnknownNames() throws {
+        let line = takeoverLine.replacingOccurrences(
+            of: "\"gap_ms\":40000",
+            with: "\"gap_ms\":40000,\"removed\":1"
+        )
+        let report = try access([grant("a", "Phone", wasIn: true)], trail: [line])
+        let page = hubAccessPage(report, connected: true, when: when)
+        #expect(page?.takeover?.lines.contains { $0.contains("1 device") } == true)
+        #expect(page?.takeover?.lines.contains("No device was removed in the last hour.") == false)
+    }
+
+    @Test
+    func incompleteOrClearedTrailNeverClaimsNoRemovals() throws {
+        for trail in [[], [#"{"seq":22,"at":"2027-01-15T08:00:00Z","type":"trail.cleared"}"#]] {
+            var report = try access([grant("a", "Phone", wasIn: true)], trail: trail)
+            report.trailMore = true
+            let page = hubAccessPage(report, connected: true, when: when)
+            #expect(page?.takeover?.lines.contains(HubWords.Takeover.removedUnknown) == true)
+            #expect(page?.takeover?.lines.contains("No device was removed in the last hour.") == false)
+        }
+    }
+
+    @Test
+    func restartPrunesTheFileWithoutChangingAuthoritativeEvidence() throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        var seen = HubSeen(accessSeq: 50, heardAt: 1000)
+        seen.devices = ["owner": "Owner"]
+        seen.removed = [HubSeenRemoval(device: "old", at: 1000), HubSeenRemoval(device: "recent", at: 2000)]
+        HubSeenStore.save(seen, to: file, now: 2000)
+        let restored = try #require(HubSeenStore.load(from: file, now: hubSeenRemovedKeepMs + 1000))
+        #expect(restored.removed.map(\.device) == ["recent"])
+        #expect(restored.accessSeq == 50)
+        #expect(restored.devices == seen.devices)
+        #expect(restored.heardAt == seen.heardAt)
+        #expect(seen.removed.count == 2)
+    }
+
+    @Test
     func noticesRemovalsAndKeepsTheNewestReport() {
         var seen: HubSeen?
         #expect(HubSeen.note(&seen, state: state(3, ["a", "b", "c"]), now: 1000))
@@ -139,7 +206,8 @@ struct HubSeenSuite {
             HubSeen.note(&seen, state: state, now: hubSeenTimes[index])
         }
         let reference = try #require(json(hubSeenHello) as? [String: Any])
-        #expect(NSDictionary(dictionary: HubSeen.hello(seen, now: hubSeenNow)) == NSDictionary(dictionary: reference))
+        #expect(NSDictionary(dictionary: HubSeen.hello(seen, now: hubSeenNow)) ==
+            NSDictionary(dictionary: reference))
         #expect(seen?.standbys["desk"] == HubSeenStandby(state: "behind", accessSeq: 8, answering: false))
     }
 
@@ -184,7 +252,8 @@ struct HubSeenSuite {
     func aDeviceThatWaitsAfterATakeoverSaysWhy() {
         let waiting = hubStatus(state: nil, me: "me", connected: true, pending: true, recheck: true)
         #expect(waiting.title == "Waiting for Allow")
-        #expect(waiting.line == "An owner started the hub somewhere else. They have to allow this device again.")
+        #expect(waiting
+            .line == "An owner started the hub somewhere else. They have to allow this device again.")
         let joined = hubStatus(state: nil, me: "me", connected: true, pending: true)
         #expect(joined.line == HubWords.Setup.waitingLine)
         var status = HubStatus(kind: .live, title: "LIVE", line: "Viewers see this phone.")
@@ -232,7 +301,7 @@ struct HubSeenSuite {
                               trail: [takeoverLine, removedLine("Old phone", minutes: 90)])
         let page = try #require(hubAccessPage(list, connected: true, when: when))
         #expect(page.takeover?.allowAll == [])
-        #expect(page.takeover?.lines.last == "No device was removed in the last hour.")
+        #expect(page.takeover?.lines.last == HubWords.Takeover.removedUnknown)
         #expect(page.primaryAllow == "dev-own")
     }
 
@@ -242,7 +311,10 @@ struct HubSeenSuite {
         let nowMs = Int64(when.now.timeIntervalSince1970 * 1000)
         HubSeen.note(&seen, state: state(3, ["dev-x", "a"]), now: nowMs - 300_000)
         HubSeen.note(&seen, state: state(4, ["a"]), now: nowMs - 180_000)
-        let list = try access([grant("dev-box", "Backpack", wasIn: true), grant("dev-kim", "Kim", wasIn: true)])
+        let list = try access([
+            grant("dev-box", "Backpack", wasIn: true),
+            grant("dev-kim", "Kim", wasIn: true),
+        ])
         let page = try #require(hubAccessPage(list, connected: true, seen: seen, when: when))
         #expect(page.takeover?.lines == ["DEV-X was removed 3 minutes ago. It stays out."])
         let plain = try access([grant("dev-new", "Robin's laptop", wasIn: false)])

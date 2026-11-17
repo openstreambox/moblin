@@ -1,12 +1,21 @@
 import Foundation
 
-
 extension Model {
     func hubLearn(_ message: HubMessage) {
+        let accepted: HubOwnership?
+        do {
+            accepted = try hubValidateEvidence(message, hubKey: database.hub.hubKey,
+                                               ownership: database.hub.ownership, epoch: database.hub.epoch,
+                                               seen: hub.seen)
+        } catch { return }
+        let ownershipChanged = accepted != database.hub.ownership
+        database.hub.ownership = accepted
         let state = message.object["state"] as? [String: Any]
         let stateHub = state?["hub"] as? [String: Any]
-        var changed = false
-        if let epoch = hubEpoch(message) ?? hubWholeNumber(stateHub?["epoch"]), epoch != database.hub.epoch {
+        var changed = ownershipChanged
+        if let epoch = hubEpoch(message) ?? hubWholeNumber(stateHub?["epoch"]),
+           epoch >= (database.hub.epoch ?? 0), epoch != database.hub.epoch
+        {
             database.hub.epoch = epoch
             changed = true
         }
@@ -25,7 +34,9 @@ extension Model {
             return
         }
         let now = hubNowMs()
-        hubKeepSeen(changed: HubSeen.note(&hub.seen, state: state, now: now), now: now)
+        let noted = HubSeen.note(&hub.seen, state: state, now: now)
+        hub.seen = HubSeen.scoped(hub.seen, setup: database.hub.hubKey + ":" + database.hub.deviceId)
+        hubKeepSeen(changed: noted, now: now)
     }
 
     func hubHeard() {

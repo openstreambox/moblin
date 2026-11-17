@@ -170,3 +170,26 @@ the helper or the mod.
 
 The OSB name and the latch-case icon are placeholders. OpenStreamBox is a
 working name, and its trademark check is still to come before a public release.
+
+Reconnects check authenticated ownership and access evidence before accepting a
+candidate or remembering its address. The phone pins the ownership root and
+signed history, rejects older or conflicting history, and never lowers the
+highest access counter it has observed. A newly scanned setup starts a separate
+account; its counters are not compared with another setup's counters. Existing
+local accounts without a setup marker bind to the currently saved setup once.
+
+Removal names describe only what this phone has observed. A takeover's reported
+removal count is shown even when its trail contains no individual names. Empty
+or cleared history cannot establish that nobody was removed. Reconnects omit
+removals older than one day, including after a restart without a new state.
+
+The reconnect regression uses three loopback endpoints with the same Noise key:
+
+```sh
+tests/osb-hub/run-reconnect-regression.sh
+```
+
+The test compiles the production Noise responder and uses the pinned `ws` package.
+The first endpoint offers an older epoch with a current counter; the second
+offers an older counter; the third offers the pinned epoch and last counter seen. The test checks endpoint selection, saved evidence and the next
+hello. It does not install the app or contact a deployed hub.

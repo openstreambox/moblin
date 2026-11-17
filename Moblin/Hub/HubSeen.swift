@@ -1,6 +1,5 @@
 import Foundation
 
-
 let hubSeenRemovedKeepMs: Int64 = 86_400_000
 let hubSeenRemovedMax = 32
 
@@ -31,6 +30,7 @@ struct HubSeenRemoval: Codable, Equatable {
 }
 
 struct HubSeen: Codable, Equatable {
+    var setup: String?
     var accessSeq: Int
     var heardAt: Int64
     var standbys: [String: HubSeenStandby] = [:]
@@ -38,6 +38,7 @@ struct HubSeen: Codable, Equatable {
     var removed: [HubSeenRemoval] = []
 
     enum CodingKeys: String, CodingKey {
+        case setup
         case accessSeq = "access_seq"
         case heardAt = "heard_at"
         case standbys
@@ -62,12 +63,17 @@ func hubWholeNumber(_ value: Any?) -> Int? {
 }
 
 extension HubSeen {
+    static func scoped(_ seen: HubSeen?, setup: String) -> HubSeen? {
+        guard var seen, seen.setup == nil || seen.setup == setup else { return nil }
+        seen.setup = setup
+        return seen
+    }
+
     @discardableResult
     static func note(_ seen: inout HubSeen?, state: [String: Any], now: Int64) -> Bool {
         let hub = state["hub"] as? [String: Any]
-        guard let seq = hubWholeNumber((hub?["access"] as? [String: Any])?["seq"]) else {
-            return false
-        }
+        guard let seq = hubWholeNumber((hub?["access"] as? [String: Any])?["seq"]),
+              seen == nil || seq >= seen!.accessSeq else { return false }
         let before = seen
         var current = seen ?? HubSeen(accessSeq: seq, heardAt: now)
         var devices: [String: String] = [:]
@@ -83,7 +89,7 @@ extension HubSeen {
                 current.removed.append(HubSeenRemoval(device: id, name: name, accessSeq: seq, at: now))
             }
         }
-        current.removed = Array(current.removed.filter { now - $0.at < hubSeenRemovedKeepMs }
+        current.removed = Array(current.removed.filter { now >= $0.at && now - $0.at < hubSeenRemovedKeepMs }
             .suffix(hubSeenRemovedMax))
         current.devices = devices
         current.accessSeq = seq
@@ -126,43 +132,53 @@ extension HubSeen {
         guard let seen else {
             return ["v": 1]
         }
-        let removed: [[String: Any]] = seen.removed.map { removal in
-            var one: [String: Any] = [
-                "device": removal.device,
-                "access_seq": removal.accessSeq.map { $0 as Any } ?? NSNull(),
-                "ago_ms": max(0, now - removal.at),
-            ]
-            if let name = removal.name {
-                one["name"] = name
+        let removed: [[String: Any]] = seen.removed
+            .filter { $0.at <= now && now - $0.at < hubSeenRemovedKeepMs }
+            .suffix(hubSeenRemovedMax).map { removal in
+                var one: [String: Any] = [
+                    "device": removal.device,
+                    "access_seq": removal.accessSeq.map { $0 as Any } ?? NSNull(),
+                    "ago_ms": max(0, now - removal.at),
+                ]
+                if let name = removal.name {
+                    one["name"] = name
+                }
+                return one
             }
-            return one
-        }
         return ["v": 1, "seen": ["access_seq": seen.accessSeq], "removed": removed]
     }
 }
 
 enum HubSeenStore {
     private static var url: URL? {
-        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        guard let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first
         else {
             return nil
         }
         return support.appendingPathComponent("hub-seen.json")
     }
 
-    static func load() -> HubSeen? {
-        guard let url, let data = try? Data(contentsOf: url) else {
-            return nil
-        }
-        return try? JSONDecoder().decode(HubSeen.self, from: data)
+    static func load(from source: URL? = nil, now: Int64 = hubNowMs()) -> HubSeen? {
+        guard let url = source ?? url, let data = try? Data(contentsOf: url),
+              var seen = try? JSONDecoder().decode(
+                  HubSeen.self,
+                  from: data
+              ) else { return nil }
+        seen.removed.removeAll { $0.at > now || now - $0.at >= hubSeenRemovedKeepMs }
+        return seen
     }
 
-    static func save(_ seen: HubSeen?) {
-        guard var url else {
+    static func save(_ seen: HubSeen?, to destination: URL? = nil, now: Int64 = hubNowMs()) {
+        guard var url = destination ?? url else {
             return
         }
-        guard let seen, let data = try? JSONEncoder().encode(seen) else {
-            delete()
+        guard var seen else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        seen.removed.removeAll { $0.at > now || now - $0.at >= hubSeenRemovedKeepMs }
+        guard let data = try? JSONEncoder().encode(seen) else {
             return
         }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(),

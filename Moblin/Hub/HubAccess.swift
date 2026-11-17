@@ -248,6 +248,7 @@ struct HubTrailDetail: Codable, Equatable {
     var endTime: String?
     var takeover: Bool?
     var agreed: Bool?
+    var removed: Int?
     var gapMs: Int64?
 
     enum CodingKeys: String, CodingKey {
@@ -270,6 +271,7 @@ struct HubTrailDetail: Codable, Equatable {
         case endTime = "end_time"
         case takeover
         case agreed
+        case removed
         case gapMs = "gap_ms"
     }
 
@@ -312,6 +314,7 @@ struct HubTrailDetail: Codable, Equatable {
         endTime = try? container.decodeIfPresent(String.self, forKey: .endTime)
         takeover = try? container.decodeIfPresent(Bool.self, forKey: .takeover)
         agreed = try? container.decodeIfPresent(Bool.self, forKey: .agreed)
+        removed = try? container.decodeIfPresent(Int.self, forKey: .removed)
         gapMs = try? container.decodeIfPresent(Int64.self, forKey: .gapMs)
     }
 }
@@ -595,17 +598,16 @@ private func howLine(_ grant: HubGrant, _ when: HubWhen) -> String {
     if grant.kind == "mod" {
         return "\(HubWords.Access.howWebLink(by)) · \(when.text(grant.givenAt))"
     }
-    let how: String
-    if grant.givenBy?.id == "hub" {
-        how = HubWords.Access.howFirstLink
+    let how: String = if grant.givenBy?.id == "hub" {
+        HubWords.Access.howFirstLink
     } else if grant.how == "scan" {
-        how = HubWords.Access.howScan(by)
+        HubWords.Access.howScan(by)
     } else if grant.how == "link" {
-        how = grant.allowedBy == nil
+        grant.allowedBy == nil
             ? HubWords.Access.howLink(by)
             : HubWords.Access.howLinkAllowed(by, partyName(grant.allowedBy))
     } else {
-        how = HubWords.Access.howUnknown
+        HubWords.Access.howUnknown
     }
     return grant.joinedAt == nil ? how : "\(how) · \(when.text(grant.joinedAt))"
 }
@@ -661,22 +663,20 @@ func hubAccessRow(_ grant: HubGrant, when: HubWhen, shared: Bool = false, live: 
     let can = Set(grant.can)
     let role = HubWords.Access.role(grant.role)
     let person = grant.person?.name?.isEmpty == false ? grant.person!.name! : HubWords.Access.unnamedLower
-    let named: String
-    if grant.kind == "invite" {
-        named = grant.name.isEmpty ? String(localized: "\(role) invite")
+    let named: String = if grant.kind == "invite" {
+        grant.name.isEmpty ? String(localized: "\(role) invite")
             : String(localized: "\(role) invite for \(grant.name)")
     } else {
-        named = grant.name
+        grant.name
     }
-    let presence: String?
-    switch grant.kind {
+    let presence: String? = switch grant.kind {
     case "invite":
-        presence = nil
+        nil
     case "mod":
-        presence = grant.state == "open" ? HubWords.Access.notOpened
+        grant.state == "open" ? HubWords.Access.notOpened
             : grant.online == true ? HubWords.Access.pageOpen : HubWords.Access.pageClosed
     default:
-        presence = grant.online == true ? HubWords.Access.here : HubWords.Access.away
+        grant.online == true ? HubWords.Access.here : HubWords.Access.away
     }
     var end: HubAccessRow.End?
     if can.contains("end") {
@@ -823,7 +823,10 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
     var owner = ""
     if let person = detail.person {
         if detail.newOwner == true {
-            owner = String(localized: " for \(person.name?.isEmpty == false ? person.name! : "someone"), a new co-owner")
+            owner =
+                String(
+                    localized: " for \(person.name?.isEmpty == false ? person.name! : "someone"), a new co-owner"
+                )
         } else if person.name?.isEmpty == false {
             owner = String(localized: " for \(person.name!)")
         }
@@ -838,19 +841,21 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
         }
         return subject?.role == "helper"
             ? String(localized: "\(by) showed a code to add a helper\(forName)\(owner)\(hand)")
-            : String(localized: "\(by) showed a code to add \(article(subject?.role ?? ""))\(forName)\(owner)\(hand)")
+            :
+            String(
+                localized: "\(by) showed a code to add \(article(subject?.role ?? ""))\(forName)\(owner)\(hand)"
+            )
     case "invite.closed":
         return String(localized: "\(by) closed the \(role) invite\(forName)")
     case "invite.ended":
         return String(localized: "The \(role) link\(forName) ended unused")
     case "device.joined":
-        let from: String
-        if entry.by?.kind == "hub" {
-            from = String(localized: "with the hub's first link")
+        let from = if entry.by?.kind == "hub" {
+            String(localized: "with the hub's first link")
         } else if detail.via == "link" {
-            from = String(localized: "with a link from \(entry.by == nil ? HubWords.Access.anOwnerDevice : by)")
+            String(localized: "with a link from \(entry.by == nil ? HubWords.Access.anOwnerDevice : by)")
         } else {
-            from = String(localized: "by scanning a code on \(entry.by == nil ? HubWords.Access.anOwnerDevice : by)")
+            String(localized: "by scanning a code on \(entry.by == nil ? HubWords.Access.anOwnerDevice : by)")
         }
         let asRole = article(subject?.role ?? "")
         return detail.waiting == true
@@ -912,7 +917,9 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
         if let subject, !subject.id.isEmpty, subject.id == entry.by?.id {
             return String(localized: "\(by) ended its link to the web view of this list")
         }
-        return String(localized: "\(by) ended the link to the web view of this list that \(name.isEmpty ? HubWords.Access.anOwnerDevice : name) made")
+        return String(
+            localized: "\(by) ended the link to the web view of this list that \(name.isEmpty ? HubWords.Access.anOwnerDevice : name) made"
+        )
     case "access.link.opened":
         let device = entry.by?.name.isEmpty == false ? entry.by!.name : HubWords.Access.anOwnerDevice
         return String(localized: "The link made on \(device) was opened in a browser")
@@ -1178,10 +1185,10 @@ func hubHandoverAsk(_ run: HubRunBy,
     }
     let device = run.device?.name ?? ""
     return HubHandoverAsk(title: run.forName?.isEmpty == false ? HubWords.Access.Ask.title(run.forName!)
-                              : HubWords.Access.Ask.titleDevice(device),
-                          since: run.givenAt.map { HubWords.Access.Ask.since(when.text($0)) },
-                          line: HubWords.Access.Ask.line(live: live, endsAt: run.endsAt, when: when),
-                          filled: filled)
+        : HubWords.Access.Ask.titleDevice(device),
+        since: run.givenAt.map { HubWords.Access.Ask.since(when.text($0)) },
+        line: HubWords.Access.Ask.line(live: live, endsAt: run.endsAt, when: when),
+        filled: filled)
 }
 
 struct HubAccessLinkRow: Equatable, Identifiable {
@@ -1299,8 +1306,13 @@ func hubTakeoverWaiting(_ access: HubAccess,
         lines.append(HubWords.Takeover.gapLine(moved.detail?.gapMs))
     }
     let removed = hubRemovedRecently(trail: trail, seen: seen, now: now)
+    let removedCount = trail.first { $0.type == "hub.moved" && $0.detail?.takeover == true }?.detail?
+        .removed ?? 0
+    if removedCount > 0 {
+        lines.append(HubWords.Takeover.removedCount(removedCount))
+    }
     if removed.isEmpty {
-        lines.append(HubWords.Takeover.removedNone)
+        lines.append(HubWords.Takeover.removedUnknown)
     } else {
         lines += removed.map { HubWords.Takeover.removed($0.name, HubWords.Takeover.age($0.agoMs)) }
     }
@@ -1357,11 +1369,10 @@ func hubAccessPage(_ access: HubAccess?,
     let yours = rows { device($0) && $0.role != "helper" }
     let unowned = rows { device($0) && $0.role != "helper" && owner($0) == nil }
     let owned = people.map { person in
-        let title: String
-        if person.you == true {
-            title = person.name?.isEmpty == false ? HubWords.Access.youNamed(person.name!) : HubWords.Access.you
+        let title: String = if person.you == true {
+            person.name?.isEmpty == false ? HubWords.Access.youNamed(person.name!) : HubWords.Access.you
         } else {
-            title = person.name?.isEmpty == false ? person.name! : HubWords.Access.unnamed
+            person.name?.isEmpty == false ? person.name! : HubWords.Access.unnamed
         }
         return HubAccessSection(id: "owner-\(person.id)",
                                 title: title,
@@ -1459,7 +1470,11 @@ func hubAccessPage(_ access: HubAccess?,
                          sections: sections,
                          links: hubAccessLinks(access, when: when),
                          trail: entries.map {
-                             HubTrailLine(id: $0.seq, text: hubTrailLine($0, when: when), at: when.text($0.at))
+                             HubTrailLine(
+                                 id: $0.seq,
+                                 text: hubTrailLine($0, when: when),
+                                 at: when.text($0.at)
+                             )
                          },
                          more: more ?? access.trailMore ?? false,
                          clear: access.can?.contains("clear_trail") == true && !entries.isEmpty,

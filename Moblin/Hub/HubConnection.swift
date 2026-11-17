@@ -47,12 +47,19 @@ final class HubConnection {
     // Join with a scanned code or an opened link. The hub's key is checked
     // against the code's fingerprint before this device says anything about
     // itself.
-    static func join(link: HubJoinLink, key: HubKeyPair, name: String, kind: String) async throws -> HubConnection {
+    static func join(link: HubJoinLink, key: HubKeyPair, name: String, kind: String,
+                     validateWelcome: (HubMessage, Data) throws -> Void = { _, _ in }) async throws
+        -> HubConnection
+    {
         var lastError: any Error = HubConnectionError.invalid("no hub address")
         for url in link.hub {
             let connection = HubConnection(url: url)
             do {
                 try await connection.runJoin(link: link, key: key, name: name, kind: kind)
+                guard connection.welcome.type == "welcome" else {
+                    throw HubConnectionError.invalid("missing welcome")
+                }
+                try validateWelcome(connection.welcome, connection.hubKey)
                 return connection
             } catch let error as HubConnectionError where error == .refused || error == .wrongHub {
                 connection.close()
@@ -70,6 +77,7 @@ final class HubConnection {
                         key: HubKeyPair,
                         hubKey: Data,
                         hello: [String: Any] = ["v": 1],
+                        validateWelcome: (HubMessage) throws -> Void = { _ in },
                         refusalCounts: (URL) -> Bool = { _ in true }) async throws -> HubConnection
     {
         var lastError: any Error = HubConnectionError.invalid("no hub address")
@@ -77,6 +85,19 @@ final class HubConnection {
             let connection = HubConnection(url: url)
             do {
                 try await connection.runConnect(key: key, hubKey: hubKey, hello: hello)
+                if let highest = ((hello["seen"] as? [String: Any])?["access_seq"] as? Int),
+                   let state = connection.welcome.object["state"] as? [String: Any],
+                   let hub = state["hub"] as? [String: Any],
+                   let access = hub["access"] as? [String: Any],
+                   (access["seq"] as? Int ?? -1) < highest
+                {
+                    throw HubConnectionError.invalid("stale access evidence")
+                }
+                guard connection.welcome.type == "welcome" else {
+                    throw HubConnectionError.invalid("missing welcome")
+                }
+                try validateWelcome(connection.welcome)
+                connection.startReceiving()
                 return connection
             } catch let error as HubConnectionError where error == .refused {
                 connection.close()
@@ -102,14 +123,18 @@ final class HubConnection {
             self.task.resume()
             let first = try handshake.writeMessage(self.json(["v": 1]))
             try await self.task.send(.data(Data([hubModeJoin]) + first))
-            _ = try handshake.readMessage(await self.receiveFrame())
+            _ = try await handshake.readMessage(self.receiveFrame())
             guard let hubKey = handshake.rs, hubFingerprint(hubKey) == link.fingerprint else {
                 throw HubConnectionError.wrongHub
             }
-            try await self.task.send(.data(handshake.writeMessage(self.json(["v": 1, "name": name, "kind": kind]))))
+            try await self.task.send(.data(handshake.writeMessage(self.json([
+                "v": 1,
+                "name": name,
+                "kind": kind,
+            ]))))
             self.hubKey = hubKey
             self.transport = try handshake.split()
-            self.welcome = try self.decrypt(await self.receiveFrame())
+            self.welcome = try await self.decrypt(self.receiveFrame())
         }
         startReceiving()
     }
@@ -124,15 +149,14 @@ final class HubConnection {
             self.task.resume()
             let first = try handshake.writeMessage(self.json(hello))
             try await self.task.send(.data(Data([hubModeConnect]) + first))
-            _ = try handshake.readMessage(await self.receiveFrame())
+            _ = try await handshake.readMessage(self.receiveFrame())
             self.hubKey = hubKey
             self.transport = try handshake.split()
-            self.welcome = try self.decrypt(await self.receiveFrame())
+            self.welcome = try await self.decrypt(self.receiveFrame())
         }
         if welcome.type == "hub.redirect" {
             throw HubConnectionError.closed(code: 4410)
         }
-        startReceiving()
     }
 
     private func withHandshakeTimeout(_ body: @escaping @MainActor () async throws -> Void) async throws {
@@ -173,7 +197,7 @@ final class HubConnection {
     private func receiveFrame() async throws -> Data {
         switch try await task.receive() {
         case let .data(data):
-            return data
+            data
         case .string:
             throw HubConnectionError.invalid("text frame")
         @unknown default:
