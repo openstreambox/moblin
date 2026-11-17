@@ -43,7 +43,265 @@ private func showcaseState(live: Bool = false,
     )
 }
 
+private func iso(_ minutes: Double) -> String {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return formatter.string(from: Date().addingTimeInterval(minutes * 60))
+}
+
+// The owner's list as the hub sends it (access.get), with times around now.
+// variant: plain | coowner | handed
+private func showcaseAccess(variant: String = "plain", live: Bool = true, hidden: Bool = false) -> HubAccess? {
+    let admin = "[\"state.get\",\"stream.go_live\",\"stream.move\",\"stream.end\",\"privacy.hide\","
+        + "\"privacy.show\",\"invite.open\",\"device.remove\",\"hub.recovery.get\"]"
+    let member = "[\"state.get\",\"stream.go_live\",\"stream.move\",\"stream.end\",\"privacy.hide\",\"privacy.show\"]"
+    let helper = "[\"state.get\",\"stream.move\",\"privacy.hide\"]"
+    let session = "[\"state.get\",\"stream.go_live\",\"stream.move\",\"stream.end\",\"privacy.hide\","
+        + "\"privacy.show\",\"invite.open\"]"
+    let mod = "[\"mod.state\",\"privacy.hide\"]"
+    let handed = variant == "handed"
+    let coowner = variant == "coowner"
+    var grants = [
+        """
+        {"id":"dev-phone","kind":"device","name":"iPhone","for":null,"device_kind":"phone","role":"admin",
+        "allows":\(admin),"state":"active","online":true,"how":"scan","given_by":{"id":"dev-desk","name":"Mac"},
+        "joined_at":"\(iso(-190))","ends_at":null,"ends_with_stream":false,"carries_stream":\(live),"self":true,
+        "person":{"id":"per-1","name":"\(coowner ? "Alex" : "")"},"can":["end"]}
+        """,
+        """
+        {"id":"dev-desk","kind":"device","name":"Mac","for":null,"device_kind":"pc","role":"admin",
+        "allows":\(admin),"state":"active","online":true,"how":"link","given_by":{"id":"hub","name":"Studio hub"},
+        "joined_at":"\(iso(-1500))","ends_at":null,"ends_with_stream":false,"carries_stream":false,"self":false,
+        "person":{"id":"per-1","name":"\(coowner ? "Alex" : "")"},"can":["end"]}
+        """,
+        """
+        {"id":"dev-box","kind":"device","name":"Backpack","for":null,"device_kind":"box","role":"member",
+        "allows":\(member),"state":"active","online":false,"how":"scan","given_by":{"id":"dev-desk","name":"Mac"},
+        "joined_at":"\(iso(-1400))","ends_at":null,"ends_with_stream":false,"carries_stream":false,"self":false,
+        "person":{"id":"per-1","name":""},"can":["change","end","hand"]}
+        """,
+        """
+        {"id":"dev-kim","kind":"device","name":"Kim's laptop","for":"Kim","device_kind":"helper","role":"helper",
+        "allows":\(handed ? session : helper),"state":"active","online":true,"how":"link",
+        "given_by":{"id":"dev-phone","name":"iPhone"},"allowed_by":{"id":"dev-phone","name":"iPhone"},
+        "allowed_at":"\(iso(-48))","joined_at":"\(iso(-50))","ends_at":null,"ends_with_stream":true,
+        "carries_stream":false,"self":false,"runs_stream":\(handed),
+        \(handed ? "\"limits\":{\"invite.open\":\"stream\"}," : "")
+        "can":\(handed ? "[\"change\",\"end\",\"take_back\"]" : "[\"change\",\"end\",\"hand\"]")}
+        """,
+        """
+        {"id":"mod-sam","kind":"mod","name":"Sam","for":"Sam","device_kind":null,"role":"mod","allows":\(mod),
+        "state":"active","online":true,"how":"web_link","given_by":{"id":"dev-phone","name":"iPhone"},
+        "given_at":"\(iso(-30))","joined_at":"\(iso(-28))","ends_at":"\(iso(690))","ends_with_stream":true,
+        "carries_stream":false,"self":false,"given_by_session":false,"can":["change","end"]}
+        """,
+        """
+        {"id":"inv-1","kind":"invite","name":"Jo","for":"Jo","device_kind":null,"role":"helper","allows":\(helper),
+        "state":"open","online":false,"how":"link","given_by":{"id":"dev-phone","name":"iPhone"},
+        "given_at":"\(iso(-5))","joined_at":null,"ends_at":"\(iso(115))","access_ms":null,"ends_with_stream":true,
+        "carries_stream":false,"self":false,"can":["end"]}
+        """,
+    ]
+    if coowner {
+        grants.insert("""
+        {"id":"dev-wait","kind":"device","name":"Robin's phone","for":null,"device_kind":"phone","role":"admin",
+        "allows":\(admin),"state":"waiting","online":true,"how":"scan","given_by":{"id":"dev-phone","name":"iPhone"},
+        "joined_at":"\(iso(-1))","ends_at":null,"ends_with_stream":false,"carries_stream":false,"self":false,
+        "person":{"id":null,"name":"Robin"},"new_owner":true,"can":["allow","end"]}
+        """, at: 0)
+        grants.append("""
+        {"id":"dev-kimphone","kind":"device","name":"Kim's phone","for":null,"device_kind":"phone","role":"admin",
+        "allows":\(admin),"state":"active","online":true,"how":"scan","given_by":{"id":"dev-phone","name":"iPhone"},
+        "joined_at":"\(iso(-900))","ends_at":null,"ends_with_stream":false,"carries_stream":false,"self":false,
+        "person":{"id":"per-2","name":"Kim"},"can":["end"]}
+        """)
+    } else if !handed {
+        grants.insert("""
+        {"id":"dev-wait","kind":"device","name":"Robin's laptop","for":"Robin","device_kind":"helper","role":"helper",
+        "allows":\(helper),"state":"waiting","online":true,"how":"link","given_by":{"id":"dev-phone","name":"iPhone"},
+        "joined_at":"\(iso(-1))","ends_at":null,"ends_with_stream":true,"carries_stream":false,"self":false,
+        "can":["allow","change","end"]}
+        """, at: 0)
+    }
+    func party(_ id: String, _ name: String, _ role: String, _ kind: String = "device") -> String {
+        "{\"kind\":\"\(kind)\",\"id\":\"\(id)\",\"name\":\"\(name)\",\"role\":\"\(role)\"}"
+    }
+    let phone = party("dev-phone", "iPhone", "admin")
+    let trail = [
+        hidden ? "{\"seq\":12,\"at\":\"\(iso(-1))\",\"type\":\"privacy.hide\",\"by\":\(party("mod-sam", "Sam", "mod", "mod"))}" : nil,
+        handed ? "{\"seq\":11,\"at\":\"\(iso(-3))\",\"type\":\"stream.handed\",\"by\":\(phone),"
+            + "\"subject\":\(party("dev-kim", "Kim's laptop", "helper")),\"detail\":{\"for\":\"Kim\"}}" : nil,
+        "{\"seq\":10,\"at\":\"\(iso(-5))\",\"type\":\"invite.opened\",\"by\":\(phone),"
+            + "\"subject\":\(party("inv-1", "Jo", "helper", "invite")),\"detail\":{\"via\":\"link\"}}",
+        "{\"seq\":9,\"at\":\"\(iso(-20))\",\"type\":\"privacy.show\",\"by\":\(phone)}",
+        "{\"seq\":8,\"at\":\"\(iso(-22))\",\"type\":\"privacy.hide\",\"by\":\(party("mod-sam", "Sam", "mod", "mod"))}",
+        "{\"seq\":7,\"at\":\"\(iso(-28))\",\"type\":\"mod.joined\",\"subject\":\(party("mod-sam", "Sam", "mod", "mod"))}",
+        "{\"seq\":6,\"at\":\"\(iso(-30))\",\"type\":\"mod.made\",\"by\":\(phone),"
+            + "\"subject\":\(party("mod-sam", "Sam", "mod", "mod"))}",
+        "{\"seq\":5,\"at\":\"\(iso(-40))\",\"type\":\"stream.move\",\"by\":\(party("dev-kim", "Kim's laptop", "helper")),"
+            + "\"subject\":\(phone)}",
+        "{\"seq\":4,\"at\":\"\(iso(-48))\",\"type\":\"device.allowed\",\"by\":\(phone),"
+            + "\"subject\":\(party("dev-kim", "Kim's laptop", "helper"))}",
+        "{\"seq\":3,\"at\":\"\(iso(-50))\",\"type\":\"device.joined\",\"by\":\(phone),"
+            + "\"subject\":\(party("dev-kim", "Kim's laptop", "helper")),\"detail\":{\"via\":\"link\",\"waiting\":true}}",
+        "{\"seq\":2,\"at\":\"\(iso(-55))\",\"type\":\"invite.opened\",\"by\":\(phone),"
+            + "\"subject\":\(party("inv-0", "Kim", "helper", "invite")),\"detail\":{\"via\":\"link\"}}",
+        "{\"seq\":1,\"at\":\"\(iso(-60))\",\"type\":\"stream.go_live\",\"by\":\(party("dev-desk", "Mac", "admin")),"
+            + "\"subject\":\(party("dev-desk", "Mac", "admin"))}",
+    ].compactMap { $0 }
+    let people = coowner
+        ? "[{\"id\":\"per-1\",\"name\":\"Alex\",\"you\":true},{\"id\":\"per-2\",\"name\":\"Kim\",\"you\":false}]"
+        : "[{\"id\":\"per-1\",\"name\":\"\",\"you\":true}]"
+    let runBy = handed
+        ? "{\"kind\":\"handed\",\"device\":{\"id\":\"dev-kim\",\"name\":\"Kim's laptop\"},\"for\":\"Kim\","
+        + "\"given_by\":{\"id\":\"dev-phone\",\"name\":\"iPhone\"},\"given_at\":\"\(iso(-3))\","
+        + "\"ends_at\":\"\(iso(1437))\",\"gave\":{\"helpers\":0,\"mods\":1,\"invites\":0}}"
+        : "null"
+    let json = """
+    {"hub":"Studio hub","as":{"id":"dev-phone","name":"iPhone"},
+    "stream":{"session":"showcase","live":"\(live ? "live" : "ready")","hidden":\(hidden),"run_by":\(runBy)},
+    "people":\(people),"can":["clear_trail"],
+    "grants":[\(grants.joined(separator: ","))],"trail":[\(trail.joined(separator: ","))],"trail_more":true}
+    """
+    return try? JSONDecoder().decode(HubAccess.self, from: Data(json.utf8))
+}
+
+private let showcaseHelperLink = "osb-hub://join#v=1&h=wss%3A%2F%2Fhub.example.org%2Fhub%2Fv1"
+    + "&t=ABEiM0RVZneImaq7zN3u_w&fp=GutExPD1wgwE4-X9a6juTfKMUfAitOFU-7m7OqcTU7A&n=Studio+hub"
+
 extension Model {
+    // An owner device in a setup with a crew: the panel, the crew list, the
+    // link forms and "Who has access".
+    private func hubShowcaseOwner(_ name: String) -> Bool {
+        hubShowcaseJoined()
+        database.hub.role = "admin"
+        hub.showcaseSending = true
+        var state = showcaseState(live: true, program: showcaseMe, feed: "checked", links: 3)
+        state.devices[0].role = "admin"
+        state.devices.append(HubDevice(id: "dev-kim", name: "Kim's laptop", kind: "helper", role: "helper",
+                                       allowed: true, online: true, feed: false))
+        state.mods = [HubMod(id: "mod-sam", name: "Sam", state: "joined", expiresAt: iso(690), joinedAt: iso(-28),
+                             online: true, endsWithStream: true)]
+        state.invites = [HubInvite(id: "inv-1", role: "helper", via: "link", by: showcaseMe, closesAt: iso(115),
+                                   rotates: false, endsWithStream: true)]
+        let waiting = HubDevice(id: "dev-wait", name: "Robin's laptop", kind: "helper", role: "helper",
+                                allowed: false, online: true, feed: false)
+        var variant = "plain"
+        var screens: [HubScreen] = []
+        switch name {
+        case "owner":
+            hub.access = showcaseAccess(variant: "handed")
+        case "owner-waiting":
+            state.devices.append(waiting)
+        case "owner-coowner-confirm":
+            variant = "coowner"
+            state.devices.append(HubDevice(id: "dev-wait", name: "Robin's phone", kind: "phone", role: "admin",
+                                           allowed: false, online: true, feed: false))
+            hub.accessConfirming = HubAccessConfirm(grant: "dev-wait", action: .coOwner)
+        case "owner-hidden-by":
+            state.session.privacy = HubPrivacy(hidden: true,
+                                               generation: 4,
+                                               hiddenBy: HubParty(kind: "mod", id: "mod-sam", name: "Sam", role: "mod"))
+        case "member-crew":
+            database.hub.role = "member"
+            state.devices[0].role = "member"
+        case "crew":
+            state.devices.append(waiting)
+            screens = [.crew]
+        case "crew-empty":
+            state.devices.removeAll { $0.id == "dev-kim" }
+            state.mods = []
+            state.invites = []
+            variant = "empty"
+            screens = [.crew]
+        case "crew-end-link":
+            screens = [.crew]
+            hub.accessConfirming = HubAccessConfirm(grant: "inv-1", action: .end)
+        case "make-helper":
+            hub.showcaseDraft = "Jo"
+            screens = [.crew, .makeHelper]
+        case "helper-link":
+            hub.madeLink = HubMadeLink(kind: .helper, name: "Jo", link: showcaseHelperLink, closesAt: iso(120))
+            screens = [.crew, .makeHelper]
+        case "make-mod":
+            hub.showcaseDraft = "Sam"
+            screens = [.crew, .makeMod]
+        case "mod-link":
+            hub.madeLink = HubMadeLink(kind: .mod,
+                                       name: "Sam",
+                                       link: "https://hub.example.org/mod#v=1&t=ABEiM0RVZneImaq7zN3u_w",
+                                       closesAt: iso(720))
+            screens = [.crew, .makeMod]
+        case "mod-refused":
+            hub.showcaseDraft = "Sam"
+            hub.showcaseFailure = HubWords.Crew.noModLinks
+            screens = [.crew, .makeMod]
+        case "access":
+            state.devices.append(waiting)
+            screens = [.access]
+        case "access-remove":
+            screens = [.access]
+            variant = "carrier"
+            hub.accessConfirming = HubAccessConfirm(grant: "dev-desk", action: .end)
+        case "access-failed":
+            screens = [.access]
+            variant = "handed"
+            hub.accessFailedLine = HubWords.Access.failed
+            hub.accessFailed = "dev-phone"
+        case "access-coowner":
+            variant = "coowner"
+            screens = [.access]
+        case "access-handed":
+            variant = "handed"
+            screens = [.access]
+        case "access-take-back":
+            variant = "handed"
+            screens = [.access]
+            hub.accessConfirming = HubAccessConfirm(grant: "dev-kim#stream", action: .takeBack)
+        case "access-trail":
+            screens = [.access]
+        case "access-hidden":
+            state.session.privacy = HubPrivacy(hidden: true,
+                                               generation: 4,
+                                               hiddenBy: HubParty(kind: "mod", id: "mod-sam", name: "Sam", role: "mod"))
+            screens = [.access]
+        case "access-unreachable":
+            hub.connected = false
+            screens = [.access]
+        default:
+            return false
+        }
+        hub.state = state
+        if hub.access == nil {
+            switch variant {
+            case "empty":
+                if var access = showcaseAccess(variant: "handed") {
+                    access.grants.removeAll { $0.id != "dev-phone" && $0.id != "dev-desk" && $0.id != "dev-box" }
+                    access.stream.runBy = nil
+                    hub.access = access
+                }
+            case "carrier":
+                // Viewers see the Mac here, so removing it warns first.
+                if var access = showcaseAccess(variant: "handed") {
+                    for index in access.grants.indices {
+                        access.grants[index].carriesStream = access.grants[index].id == "dev-desk"
+                    }
+                    access.stream.runBy = nil
+                    hub.access = access
+                }
+                state.session.program = showcaseDesk
+                hub.state = state
+            default:
+                hub.access = showcaseAccess(variant: variant, hidden: state.session.privacy.hidden)
+            }
+        }
+        if showingPanel != .rig {
+            toggleShowingPanel(type: .rig, panel: .rig)
+        }
+        hub.path = screens
+        return true
+    }
+
     func hubShowcaseStream() -> SettingsStream {
         let stream = SettingsStream(name: "Rig: \(showcaseHub)")
         stream.url = "srtla://hub.example.org:5001"
@@ -69,6 +327,14 @@ extension Model {
         hub.pending = false
         hub.notice = nil
         hub.joinState = .none
+        hub.access = nil
+        hub.accessConfirming = nil
+        hub.accessFailed = nil
+        hub.madeLink = nil
+        hub.showcaseDraft = nil
+        hub.showcaseFailure = nil
+        hub.showcaseSection = nil
+        hub.path = []
         database.hub = SettingsHub()
         let filled = [String(localized: "Stream to the hub, bonded"), String(localized: "Selected as your stream")]
         switch name {
@@ -146,6 +412,9 @@ extension Model {
         case "join-wrong-hub":
             hub.joinState = .failed(.wrongHub)
         default:
+            if hubShowcaseOwner(name) {
+                return true
+            }
             hub.showcase = false
             return false
         }
@@ -166,7 +435,10 @@ extension Model {
             return
         }
         hub.debugActionsStarted = true
-        for action in ["join", "done", "panel", "connect", "disconnect", "move", "hide", "show"] {
+        for action in ["join", "done", "panel", "connect", "disconnect", "move", "hide", "show",
+                       "crew", "access", "back", "allow", "helper-form", "helper-make", "mod-form", "mod-make",
+                       "link-done", "mod-end", "confirm", "showcase"]
+        {
             var token: Int32 = 0
             notify_register_dispatch("osb.hub.debug.\(action)", &token, DispatchQueue.main) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -203,8 +475,98 @@ extension Model {
                 hubShowPicture(generation: generation)
             }
         default:
+            debugHubCrewAction(action)
+        }
+    }
+
+    // The crew's and the list's actions, for the same test runs.
+    private func debugHubCrewAction(_ action: String) {
+        switch action {
+        case "crew":
+            hub.showcaseSection = nil
+            hub.path = [.crew]
+        case "access":
+            hub.path = [.access]
+        case "back":
+            hub.path = []
+        case "allow":
+            if let device = hubWaitingDevices(hub.state).first {
+                hubAllow(device.id)
+            }
+        case "helper-form":
+            hub.showcaseDraft = "Kim"
+            hub.madeLink = nil
+            hub.path = [.crew, .makeHelper]
+        case "helper-make":
+            Task { @MainActor in
+                _ = await hubMakeHelperLink(name: "Kim", linkLasts: .twoHours, ends: .stream)
+                debugHubWriteLink()
+            }
+        case "mod-form":
+            hub.showcaseDraft = "Sam"
+            hub.madeLink = nil
+            hub.path = [.crew, .makeMod]
+        case "mod-make":
+            Task { @MainActor in
+                _ = await hubMakeModLink(name: "Sam", linkLasts: .halfDay, untilStream: true)
+                debugHubWriteLink()
+            }
+        case "link-done":
+            hubCloseMadeLink()
+        case "mod-end":
+            // The crew list at its Mods section, then End now on the first mod.
+            hub.showcaseSection = "mods"
+            hub.path = [.crew]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                if let mod = self.hub.access?.grants.first(where: { $0.kind == "mod" }) {
+                    self.hub.accessConfirming = HubAccessConfirm(grant: mod.id, action: .end)
+                }
+            }
+        case "confirm":
+            if let confirming = hub.accessConfirming, confirming.action == .end {
+                hubEndAccess(confirming.grant)
+            }
+        case "showcase":
+            // Another fixture without a relaunch: "<name> [section] [YES]"
+            // in Documents/hub-debug-showcase.txt.
+            let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("hub-debug-showcase.txt")
+            guard let text = try? String(contentsOf: file, encoding: .utf8) else {
+                return
+            }
+            let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+            guard let name = words.first else {
+                return
+            }
+            // A confirm that is still up goes first, then the screens.
+            hub.accessConfirming = nil
+            presentingHubJoin = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                if self.showingPanel == .rig {
+                    self.toggleShowingPanel(type: .rig, panel: .rig)
+                }
+                self.hub.path = []
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                UserDefaults.standard.set(words.count > 2 && words[2] == "YES", forKey: "HubShowcaseScroll")
+                self.hubShowcase(name)
+                self.hub.showcaseSection = words.count > 1 && words[1] != "none" ? words[1] : nil
+            }
+        default:
             break
         }
+    }
+
+    // With -HubDebugLinkFile YES the link just made is also written to
+    // Documents/hub-debug-link.txt, so a test run can hand it to the
+    // helper or mod it plays. Never in a release build.
+    private func debugHubWriteLink() {
+        guard UserDefaults.standard.bool(forKey: "HubDebugLinkFile"), let made = hub.madeLink else {
+            return
+        }
+        let file = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("hub-debug-link.txt")
+        try? made.link.write(to: file, atomically: true, encoding: .utf8)
     }
 
     // -HubShowcaseScroll YES opens the panel scrolled to its end.
@@ -218,6 +580,8 @@ extension Model {
             return
         }
         hubShowcase(name)
+        // -HubShowcaseSection <id> opens a list at that section.
+        hub.showcaseSection = UserDefaults.standard.string(forKey: "HubShowcaseSection")
     }
 }
 

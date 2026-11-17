@@ -334,6 +334,7 @@ struct HubStatusView: View {
     let status: HubStatus
     // Off where a control right below already says the same sentence.
     var showLine = true
+    var showPhone = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -350,7 +351,7 @@ struct HubStatusView: View {
                     .foregroundStyle(HubLook.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if let phone = status.phone {
+            if showPhone, let phone = status.phone {
                 Text(phone)
                     .font(.subheadline)
                     .foregroundStyle(HubLook.text)

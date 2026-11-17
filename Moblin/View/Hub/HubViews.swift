@@ -100,7 +100,9 @@ private struct HubMoveControlView: View {
                 } label: {
                     Text("Move stream to phone")
                 }
-                .buttonStyle(HubDecisionButtonStyle())
+                // A move is offered, not waited for: outlined, as in every
+                // app of the shared look. Filled is for Connect and Allow.
+                .buttonStyle(HubOutlineButtonStyle())
                 .accessibilityHint(String(localized: "Viewers see this phone from the next frame."))
                 HubHintView(text: String(localized: "Viewers see this phone from the next frame."))
             }
@@ -201,6 +203,8 @@ private struct HubPrivacyControlView: View {
     let model: Model
     let control: HubPrivacyControl
     let live: Bool
+    // "Hidden by Sam · Mod", when someone else asked for it.
+    let hiddenBy: String?
 
     private func idleLine() -> String {
         live ? String(localized: "Covers the picture and the sound for viewers. The stream stays live.")
@@ -230,7 +234,8 @@ private struct HubPrivacyControlView: View {
             VStack(alignment: .leading, spacing: HubLook.stack) {
                 HubCard(muted: true, heavy: true) {
                     HubConfirmedView(kind: .hidden,
-                                     title: String(localized: "Your privacy screen is on. Viewers don't see you."))
+                                     title: String(localized: "Your privacy screen is on. Viewers don't see you."),
+                                     line: hiddenBy)
                 }
                 if canShow {
                     Button {
@@ -293,6 +298,171 @@ private struct HubRigStreamView: View {
     }
 }
 
+// Someone joined by a sent link and waits: the owner's one decision.
+private struct HubWaitingDeviceView: View {
+    let model: Model
+    @ObservedObject var hub: HubProvider
+    let device: HubDevice
+
+    @ViewBuilder
+    private func buttons() -> some View {
+        Button {
+            // A new co-owner's device asks first; any other is let in.
+            if model.hubNeedsCoOwnerConfirm(device: device.id) {
+                hub.accessFailed = nil
+                hub.accessConfirming = HubAccessConfirm(grant: device.id, action: .coOwner)
+            } else {
+                model.hubAllow(device.id)
+            }
+        } label: {
+            Text(HubWords.Access.allow)
+        }
+        .buttonStyle(HubDecisionButtonStyle())
+        .accessibilityLabel("\(HubWords.Access.allow): \(device.name)")
+        .accessibilityHint(hubAllowsLine(hubRoleAllows(device.role)))
+        Button {
+            hub.accessFailed = nil
+            hub.accessConfirming = HubAccessConfirm(grant: device.id, action: .end)
+        } label: {
+            Text(HubWords.Access.remove)
+        }
+        .buttonStyle(HubOutlineButtonStyle())
+        .accessibilityLabel("\(HubWords.Access.remove): \(device.name)")
+    }
+
+    var body: some View {
+        let role = HubWords.Access.role(device.role)
+        VStack(alignment: .leading, spacing: 8) {
+            HubSectionLabel(text: HubWords.Access.waiting)
+            HubCard {
+                Text(device.role == "helper" ? HubWords.Crew.wantsToHelp(device.name)
+                    : HubWords.Crew.wantsToJoin(device.name))
+                    .font(.headline)
+                    .foregroundStyle(HubLook.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                // Allow first, within reach without scrolling; what it
+                // gives is said right under it.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        buttons()
+                    }
+                    VStack(spacing: 8) {
+                        buttons()
+                    }
+                }
+                Text("\(role) · \(hubAllowsLine(hubRoleAllows(device.role)))")
+                    .font(.footnote)
+                    .foregroundStyle(HubLook.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
+                HubAccessFailureView(hub: hub, grant: device.id)
+            }
+            .disabled(hub.accessBusy.contains(device.id))
+            .hubAccessConfirm(model: model,
+                              hub: hub,
+                              grant: device.id,
+                              end: .init(label: HubWords.Access.remove,
+                                         confirm: HubWords.Access.confirmRemove(device.name)),
+                              coOwner: model.hubCoOwnerConfirmFor(device: device))
+        }
+    }
+}
+
+private struct HubPanelLinkRow: View {
+    let title: String
+    let line: String?
+    let screen: HubScreen
+
+    var body: some View {
+        NavigationLink(value: screen) {
+            HStack(alignment: .center, spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(HubLook.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let line {
+                        Text(line)
+                            .font(.subheadline)
+                            .foregroundStyle(HubLook.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(HubLook.textMuted)
+                    .accessibilityHidden(true)
+            }
+            .frame(minHeight: HubLook.minTouchTarget)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// An owner device: the way to the crew and to "Who has access".
+private struct HubCrewLinksView: View {
+    let summary: HubCrewSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HubSectionLabel(text: String(localized: "People"))
+            HubCard {
+                HubPanelLinkRow(title: HubWords.Crew.title,
+                                line: summary.line ?? String(localized: "Helper and mod links"),
+                                screen: .crew)
+                Rectangle()
+                    .fill(HubLook.border)
+                    .frame(height: HubLook.hairline)
+                HubPanelLinkRow(title: HubWords.Access.title,
+                                line: String(localized: "Devices, helpers, mods, and what happened"),
+                                screen: .access)
+            }
+        }
+    }
+}
+
+// Any other device: who helps, by name. No links and nothing to press,
+// because the hub lets only an owner device let people in or remove them.
+private struct HubCrewReadOnlyView: View {
+    let summary: HubCrewSummary
+
+    var body: some View {
+        if !summary.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                HubSectionLabel(text: HubWords.Crew.title)
+                HubCard {
+                    ForEach(summary.helpers, id: \.id) { helper in
+                        row(helper.name,
+                            HubWords.Access.role("helper"),
+                            helper.online == true ? HubWords.Access.here : HubWords.Access.away)
+                    }
+                    ForEach(summary.mods, id: \.id) { mod in
+                        row(mod.name,
+                            HubWords.Access.role("mod"),
+                            mod.state == "joined" ? HubWords.Crew.joined : HubWords.Crew.waiting)
+                    }
+                }
+                HubHintView(text: String(localized: "Only an owner device can let people in or remove them."))
+                    .accessibilityHidden(false)
+            }
+        }
+    }
+
+    private func row(_ name: String, _ role: String, _ state: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(name)
+                .font(.headline)
+                .foregroundStyle(HubLook.text)
+                .fixedSize(horizontal: false, vertical: true)
+            Text("\(role) · \(state)")
+                .font(.subheadline)
+                .foregroundStyle(HubLook.textMuted)
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
 private struct HubJoinedPanelView: View {
     let model: Model
     @ObservedObject var hub: HubProvider
@@ -304,7 +474,8 @@ private struct HubJoinedPanelView: View {
         let controls = model.hubControlList()
         HubRigHeaderView(name: settings.name)
         HubCard {
-            HubStatusView(status: status, showLine: status.kind != .hidden)
+            // While hidden, the privacy card below says it and who asked.
+            HubStatusView(status: status, showLine: status.kind != .hidden, showPhone: status.kind != .hidden)
             if !hub.connected, !hub.pending {
                 Button {
                     model.hubReconnectNow()
@@ -316,6 +487,11 @@ private struct HubJoinedPanelView: View {
                 .accessibilityHint(String(localized: "Tries to reach the hub again right away."))
             }
         }
+        let owner = model.hubIsOwner()
+        let waiting = owner && hub.connected ? hubWaitingDevices(hub.state) : []
+        ForEach(waiting, id: \.id) { device in
+            HubWaitingDeviceView(model: model, hub: hub, device: device)
+        }
         if hub.connected, !hub.pending {
             if let move = controls.move {
                 HubMoveControlView(model: model, control: move)
@@ -323,13 +499,19 @@ private struct HubJoinedPanelView: View {
             // Connect comes first while it is the next step; once connected,
             // HIDE sits above Disconnect so it stays within reach.
             if let feed = controls.feed, feed == .connect || feed == .connecting {
+                // Allow, when someone waits, is the screen's one decision.
                 HubFeedControlView(model: model,
                                    control: feed,
-                                   isDecision: controls.move != .offer,
+                                   isDecision: waiting.isEmpty,
                                    onAir: controls.move == .onAir)
             }
             if let privacy = controls.privacy {
-                HubPrivacyControlView(model: model, control: privacy, live: hub.state?.isLive == true)
+                HubPrivacyControlView(model: model,
+                                      control: privacy,
+                                      live: hub.state?.isLive == true,
+                                      hiddenBy: hub.state.flatMap {
+                                          hubHiddenByLine($0.session.privacy, me: settings.deviceId)
+                                      })
             }
             if let feed = controls.feed, feed == .connected || feed == .disconnecting {
                 HubFeedControlView(model: model,
@@ -344,6 +526,11 @@ private struct HubJoinedPanelView: View {
         } else if !hub.pending {
             HubHintView(text: String(localized: "The controls come back when the hub answers. Until then nothing is assumed about the stream."))
                 .accessibilityHidden(false)
+        }
+        if owner {
+            HubCrewLinksView(summary: hubCrewSummary(hub.state))
+        } else if !hub.pending {
+            HubCrewReadOnlyView(summary: hubCrewSummary(hub.state))
         }
         if let stream = model.hubRigStream() {
             HubRigStreamView(name: stream.name,
