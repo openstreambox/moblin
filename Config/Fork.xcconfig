@@ -1,0 +1,7 @@
+// OpenStreamBox fork: the app is called OSB, uses its own icon and hides
+// what it doesn't need. Nothing upstream is deleted; see Fork/README.md.
+MOBLIN_DISPLAY_NAME = OSB
+MOBLIN_URL_SCHEME = osb
+MOBLIN_HIDDEN_FEATURES = MOBLIN_HIDE_STORE MOBLIN_HIDE_MASCOT MOBLIN_HIDE_MOBLIN_SERVICES MOBLIN_HIDE_CHAT_BOT
+MOBLIN_EXCLUDED_FILES = MoblinBrand.xcassets
+MOBLIN_BRAND_RESOURCES = $(SRCROOT)/Fork/Resources

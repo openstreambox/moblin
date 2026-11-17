@@ -8,43 +8,43 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin Widget"
+            "value" : "OSB Widget"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "Moblin Widget"
+            "value" : "OSB Widget"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Widget Moblin"
+            "value" : "Widget OSB"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin Widget"
+            "value" : "OSB Widget"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin 小工具"
+            "value" : "OSB 小工具"
           }
         },
         "zh-Hant-TW" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin 小工具"
+            "value" : "OSB 小工具"
           }
         },
         "zh-HK" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin小工具"
+            "value" : "OSB小工具"
           }
         }
       }
@@ -56,7 +56,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin Widget"
+            "value" : "OSB Widget"
           }
         },
         "en" : {
@@ -80,19 +80,19 @@
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin 小工具"
+            "value" : "OSB 小工具"
           }
         },
         "zh-Hant-TW" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin 小工具"
+            "value" : "OSB 小工具"
           }
         },
         "zh-HK" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Moblin小工具"
+            "value" : "OSB小工具"
           }
         }
       }
