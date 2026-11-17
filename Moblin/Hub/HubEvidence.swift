@@ -18,7 +18,7 @@ final class HubSeenBook {
             unreadable = false
         case let .kept(kept):
             unreadable = false
-            seen = HubSeen.merged(kept, seen)
+            seen = HubSeen.merged(kept, seen, now: now, mono: mono)
         case .unreadable:
             unreadable = true
             logger.info("hub: what this device saw can't be read yet, keeping it")
@@ -49,7 +49,11 @@ final class HubSeenBook {
         savedAt = 0
         if let url {
             try? FileManager.default.removeItem(at: url)
+            try? FileManager.default.removeItem(
+                at: url.deletingPathExtension().appendingPathExtension("unreadable.json")
+            )
         }
+        setAside = nil
     }
 }
 

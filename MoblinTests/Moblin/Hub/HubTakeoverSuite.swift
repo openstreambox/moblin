@@ -324,6 +324,51 @@ struct HubTakeoverSuite {
     }
 
     @Test
+    func unreadableEvidenceRecoveryRecordsTheMissingDevice() throws {
+        let takeover = try Takeover()
+        let phone = try sawFifty(takeover)
+        let kept = try Data(contentsOf: phone.file)
+        try FileManager.default.setAttributes([.posixPermissions: 0], ofItemAtPath: phone.file.path)
+        defer { try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: phone.file.path
+        ) }
+        try phone.restart()
+        #expect(phone.book.unreadable)
+        var devices = takeover.devices("before")
+        devices.removeLast()
+        #expect(phone.receive(takeover.state("h3", seq: 52, devices: devices)))
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: phone.file.path)
+        #expect(try Data(contentsOf: phone.file) == kept)
+        phone.book.keep(changed: true, now: phone.now, mono: phone.mono)
+        #expect(phone.helloRemoved == ["dev-helper"])
+        #expect(phone.book.seen?.removed.first?.accessSeq == 52)
+        phone.book.reload(now: phone.now, mono: phone.mono)
+        #expect(phone.book.seen?.removed.count == 1)
+        try phone.restart()
+        #expect(phone.helloSeq == 52)
+        #expect(phone.helloRemoved == ["dev-helper"])
+    }
+
+    @Test
+    func forgettingTheHubDeletesDamagedEvidenceAcrossRestarts() throws {
+        let takeover = try Takeover()
+        let phone = try sawFifty(takeover)
+        try Data("{\"access_seq\":".utf8).write(to: phone.file)
+        try phone.restart()
+        let aside = try #require(phone.book.setAside)
+        #expect(FileManager.default.fileExists(atPath: aside.path))
+        #expect(phone.receive(takeover.state("h3", seq: 51, devices: takeover.devices("before"))))
+        try phone.restart()
+        #expect(phone.book.setAside == nil)
+        phone.book.forget()
+        #expect(!FileManager.default.fileExists(atPath: phone.file.path))
+        #expect(!FileManager.default.fileExists(atPath: aside.path))
+        #expect(phone.book.setAside == nil)
+        #expect(phone.book.seen == nil)
+    }
+
+    @Test
     func olderEvidenceFileDoesNotOverrideTheRebasedFloor() throws {
         let takeover = try Takeover()
         let phone = try sawFifty(takeover)
@@ -337,6 +382,7 @@ struct HubTakeoverSuite {
         try older.write(to: phone.file)
         try phone.restart()
         #expect(phone.helloSeq == seq)
+        #expect(phone.helloRemoved.isEmpty)
         #expect(phone.accepts(takeover.state("h1000", seq: seq, devices: takeover.devices("agreedDevices"))))
         #expect(!phone.accepts(takeover.state(
             "h1000",

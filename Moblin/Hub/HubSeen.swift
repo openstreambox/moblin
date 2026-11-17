@@ -218,7 +218,7 @@ extension HubSeen {
         return ["v": 1, "seen": ["access_seq": seen.accessSeq], "removed": removed]
     }
 
-    static func merged(_ kept: HubSeen, _ memory: HubSeen?) -> HubSeen {
+    static func merged(_ kept: HubSeen, _ memory: HubSeen?, now: Int64, mono: HubMono?) -> HubSeen {
         guard let memory else {
             return kept
         }
@@ -233,6 +233,21 @@ extension HubSeen {
             $0.device == removal.device && $0.accessSeq == removal.accessSeq
         }) {
             out.removed.append(removal)
+        }
+        if memoryNewer, (kept.lineage ?? 1) == (out.lineage ?? 1) {
+            for (id, name) in kept.devices.sorted(by: { $0.key < $1.key }) where out.devices[id] == nil {
+                if let asked = out.removed.firstIndex(where: { $0.device == id && $0.accessSeq == nil }) {
+                    out.removed[asked].accessSeq = out.accessSeq
+                } else if !out.removed.contains(where: { $0.device == id && $0.accessSeq == out.accessSeq }) {
+                    out.removed.append(HubSeenRemoval(
+                        device: id,
+                        name: name,
+                        accessSeq: out.accessSeq,
+                        at: now,
+                        mono: mono
+                    ))
+                }
+            }
         }
         out.removed = Array(out.removed.sorted { $0.at < $1.at }.suffix(hubSeenRemovedMax))
         return out
