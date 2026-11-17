@@ -82,6 +82,15 @@ struct HubCrewView: View {
 
     private func list(helpers: [HubAccessRow], links: [HubAccessRow], mods: [HubAccessRow]) -> some View {
         List {
+            if hub.accessLoadFailed {
+                Section {
+                    Text("This hub couldn’t list the crew.")
+                    Button("Try again") {
+                        model.hubRefreshAccess()
+                    }
+                }
+                .listRowBackground(HubLook.surface)
+            }
             Section {
                 NavigationLink(value: HubScreen.makeHelper) {
                     Label(HubWords.Crew.makeHelper, systemImage: "person.badge.plus")
@@ -97,41 +106,43 @@ struct HubCrewView: View {
             .foregroundStyle(HubLook.text)
             .listRowBackground(HubLook.surface)
             .disabled(!hub.connected)
-            Section {
-                if helpers.isEmpty {
-                    HubEmptyRowView(text: HubWords.Crew.emptyHelpers)
+            if hub.access != nil {
+                Section {
+                    if helpers.isEmpty {
+                        HubEmptyRowView(text: HubWords.Crew.emptyHelpers)
+                    }
+                    ForEach(helpers) { row in
+                        HubCrewRowView(model: model, hub: hub, row: row)
+                    }
+                } header: {
+                    HubListHeader(text: HubWords.Crew.helpers)
                 }
-                ForEach(helpers) { row in
-                    HubCrewRowView(model: model, hub: hub, row: row)
+                Section {
+                    if links.isEmpty {
+                        HubEmptyRowView(text: HubWords.Crew.emptyLinks)
+                    }
+                    ForEach(links) { row in
+                        HubCrewRowView(model: model,
+                                       hub: hub,
+                                       row: row,
+                                       endLabel: HubWords.Crew.endLink,
+                                       extra: row.notes.first)
+                    }
+                } header: {
+                    HubListHeader(text: HubWords.Crew.links)
+                        .id("links")
                 }
-            } header: {
-                HubListHeader(text: HubWords.Crew.helpers)
-            }
-            Section {
-                if links.isEmpty {
-                    HubEmptyRowView(text: HubWords.Crew.emptyLinks)
+                Section {
+                    if mods.isEmpty {
+                        HubEmptyRowView(text: HubWords.Crew.emptyMods)
+                    }
+                    ForEach(mods) { row in
+                        HubCrewRowView(model: model, hub: hub, row: row)
+                    }
+                } header: {
+                    HubListHeader(text: HubWords.Crew.mods)
+                        .id("mods")
                 }
-                ForEach(links) { row in
-                    HubCrewRowView(model: model,
-                                   hub: hub,
-                                   row: row,
-                                   endLabel: HubWords.Crew.endLink,
-                                   extra: row.notes.first)
-                }
-            } header: {
-                HubListHeader(text: HubWords.Crew.links)
-                    .id("links")
-            }
-            Section {
-                if mods.isEmpty {
-                    HubEmptyRowView(text: HubWords.Crew.emptyMods)
-                }
-                ForEach(mods) { row in
-                    HubCrewRowView(model: model, hub: hub, row: row)
-                }
-            } header: {
-                HubListHeader(text: HubWords.Crew.mods)
-                    .id("mods")
             }
             Section {
                 NavigationLink(value: HubScreen.access) {

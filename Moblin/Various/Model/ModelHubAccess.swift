@@ -87,11 +87,15 @@ extension Model {
             hub.accessRefreshAgain = true
             return
         }
+        hub.accessLoadFailed = false
         hub.accessRefreshTask = Task { @MainActor in
             if let reply = try? await connection.request("access.get", ["trail_limit": 50]),
                let access = reply.decodeAll(as: HubAccess.self)
             {
                 hub.access = access
+            } else {
+                hub.access = nil
+                hub.accessLoadFailed = true
             }
             hub.accessRefreshTask = nil
             if hub.accessRefreshAgain {
@@ -106,6 +110,7 @@ extension Model {
         hub.accessRefreshTask = nil
         hub.accessRefreshAgain = false
         hub.access = nil
+        hub.accessLoadFailed = false
         hub.accessOlder = []
         hub.accessMore = nil
         hub.accessConfirming = nil
