@@ -64,6 +64,40 @@ actions also run from system notifications, for example
 test picture sent to the phone's slot can stand in for the camera a Simulator
 doesn't have.
 
+## The crew and "Who has access"
+
+An owner device gets two more screens from the rig panel, in
+`Moblin/View/Hub/HubCrewViews.swift` and `HubAccessViews.swift`. Their words
+are in one file, `Moblin/Hub/HubWords.swift`, and the reading of the hub's
+list and its wording in `Moblin/Hub/HubAccess.swift`.
+
+- **Crew:** make a helper link (who it is for, how long the link stays open,
+  and whether access ends with the stream, after a time or only when removed)
+  or a mod link, share it with the system's share sheet or as a code to scan,
+  see the links that are still open, and end one. A link is shown once. A
+  helper still waits for Allow, and Allow is on the panel.
+- **Who has access:** every device, helper, mod and unused invite with its
+  role, what it may do in a plain sentence, how it joined, who gave it and when
+  it ends; Allow, Remove or End now with one confirm, Change when it ends, and
+  what happened. It also shows who runs the stream, hands the stream over and
+  takes it back, and clears the list of what happened.
+- Both are read over the phone's own encrypted hub connection. Nothing opens a
+  web page.
+- Only an owner device is offered any of it. Other devices see who helps, by
+  name, and no buttons. The hub checks every request itself.
+- A new co-owner's device is let in only after a second, explicit confirm.
+- While the privacy screen is on, the status says who asked for it when it
+  wasn't this phone.
+
+The main button follows what the hub reports about this phone, so it reads
+Disconnect whenever the status says the phone is connected.
+
+More fixture names for `-HubShowcase` cover these screens (`owner`, `crew`,
+`access` and others in `HubShowcase.swift`); `-HubShowcaseSection <id>` opens a
+list at one section. `-HubDebugLinkFile YES` makes a debug build also write the
+link it just made to `Documents/hub-debug-link.txt`, so a test run can play
+the helper or the mod.
+
 ## Known leftovers
 
 - "Moblink" stays: it is the name of the bonding protocol and of the relay

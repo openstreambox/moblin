@@ -43,6 +43,14 @@ struct HubDevice: Codable, Equatable {
 struct HubPrivacy: Codable, Equatable {
     var hidden: Bool
     var generation: Int
+    // Who asked for HIDE, while it is on. The name is the one at the time.
+    var hiddenBy: HubParty?
+
+    enum CodingKeys: String, CodingKey {
+        case hidden
+        case generation
+        case hiddenBy = "hidden_by"
+    }
 }
 
 struct HubOutput: Codable, Equatable {
@@ -63,6 +71,9 @@ struct HubState: Codable, Equatable {
     var session: HubSession
     var feeds: [HubFeed]
     var devices: [HubDevice]
+    // Open invites and mod links, without their tickets.
+    var invites: [HubInvite]?
+    var mods: [HubMod]?
 
     func feed(_ device: String) -> HubFeed? {
         feeds.first { $0.device == device }
@@ -163,6 +174,14 @@ struct HubMessage {
         guard let value = object[key], !(value is NSNull),
               let data = try? JSONSerialization.data(withJSONObject: value)
         else {
+            return nil
+        }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    // The whole message as one value, for replies that are a record themselves.
+    func decodeAll<T: Decodable>(as _: T.Type) -> T? {
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else {
             return nil
         }
         return try? JSONDecoder().decode(T.self, from: data)
@@ -302,6 +321,20 @@ private func phoneStatus(_ feed: HubFeed?) -> HubStatus {
     }
 }
 
+// Who asked for HIDE, when it wasn't this phone: "Hidden by Sam · Mod".
+func hubHiddenByLine(_ privacy: HubPrivacy, me: String?) -> String? {
+    guard privacy.hidden, let by = privacy.hiddenBy, by.id != me, !by.name.isEmpty else {
+        return nil
+    }
+    let line = HubWords.Crew.hiddenBy(by.name)
+    switch by.role {
+    case "helper", "mod":
+        return "\(line) · \(HubWords.Access.role(by.role ?? ""))"
+    default:
+        return line
+    }
+}
+
 // The status. "Live" is only ever said for the hub's platform output; while
 // it is live, nothing here reads as if it weren't.
 func hubStatus(state: HubState?, me: String?, connected: Bool, pending: Bool) -> HubStatus {
@@ -321,7 +354,11 @@ func hubStatus(state: HubState?, me: String?, connected: Bool, pending: Bool) ->
         if session.privacy.hidden {
             return HubStatus(kind: .hidden,
                              title: String(localized: "LIVE · privacy screen on"),
-                             line: String(localized: "Your privacy screen is on. Viewers don't see you."))
+                             line: String(localized: "Your privacy screen is on. Viewers don't see you."),
+                             phone: hubHiddenByLine(session.privacy, me: me),
+                             // Short over the camera: the name, without the role.
+                             phoneBrief: hubHiddenByLine(session.privacy, me: me) == nil ? nil
+                                 : HubWords.Crew.hiddenBy(session.privacy.hiddenBy?.name ?? ""))
         }
         guard let program = session.program else {
             return HubStatus(kind: .live,

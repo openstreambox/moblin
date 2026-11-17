@@ -226,10 +226,7 @@ private struct MenuView: View {
                     .navigationBarTitleDisplayMode(.inline)
             }
         case .rig:
-            NavigationStack {
-                HubPanelView(model: model, hub: model.hub)
-                    .navigationBarTitleDisplayMode(.inline)
-            }
+            HubPanelStackView(model: model, hub: model.hub)
         case .none:
             EmptyView()
         }

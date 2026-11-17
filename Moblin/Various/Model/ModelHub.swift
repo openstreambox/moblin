@@ -70,12 +70,31 @@ class HubProvider: ObservableObject {
     var showcase = false
     var debugActionsStarted = false
     var showcaseSending = false
+    var showcaseDraft: String?
+    var showcaseSection: String?
+    var showcaseFailure: String?
     #endif
     var provision: HubProvision?
     var connection: HubConnection?
     var reconnectTask: Task<Void, Never>?
     var reconnectDelay: Double = 1
     var debugJoinOpened = false
+    // Who has access, for an owner device: the hub's last list and trail,
+    // older trail lines fetched with "Show older", the row whose Remove
+    // waits for its confirm, and the row whose last request failed.
+    @Published var access: HubAccess?
+    @Published var accessOlder: [HubTrailEntry] = []
+    @Published var accessMore: Bool?
+    @Published var accessConfirming: HubAccessConfirm?
+    @Published var accessFailed: String?
+    var accessFailedLine = ""
+    @Published var accessBusy: Set<String> = []
+    // The link the hub just made. Shown once, then forgotten.
+    @Published var madeLink: HubMadeLink?
+    // The screens pushed on top of the panel.
+    @Published var path: [HubScreen] = []
+    var accessRefreshTask: Task<Void, Never>?
+    var accessRefreshAgain = false
 
     var isJoining: Bool {
         if case .joining = joinState {
@@ -175,7 +194,9 @@ extension Model {
     }
 
     private func hubSetState(_ state: HubState) {
+        let before = hub.state
         hub.state = state
+        hubCrewStateChanged(from: before, to: state)
         let open = hubOpenRequests(hub.requested, state: state, me: database.hub.deviceId)
         for kind in hub.requested.subtracting(open) {
             hubClearRequested(kind)
@@ -383,6 +404,7 @@ extension Model {
             filled = applyHubProvision(provision)
         }
         storeSettings()
+        hubRefreshAccess()
         return filled
     }
 
@@ -420,7 +442,7 @@ extension Model {
                 makeToast(title: from, subTitle: text)
             }
         default:
-            break
+            hubHandleCrewMessage(message)
         }
     }
 
@@ -521,6 +543,7 @@ extension Model {
         hub.state = nil
         hub.provision = nil
         hub.pending = false
+        hubForgetAccess()
         storeSettings()
     }
 
