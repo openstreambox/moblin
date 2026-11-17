@@ -21,6 +21,9 @@ deleted. The upstream defaults stay in `Config/Base.xcconfig`, and
   the build. `OsbBrand.xcassets` in each target provides the OSB icons, which
   `Fork/Icons/render.sh` renders from the SVG sources there.
 - `MOBLIN_HIDDEN_FEATURES`: Swift compilation conditions that hide features.
+- `MOBLIN_FORK_FEATURES = OSB_BRAND`: the rig panel and the join sheet use the
+  OpenStreamBox look (paper and forest ink, the latch-case mark). Without it
+  they use the system's colours and a system symbol.
 
 ## What is hidden, and why
 
@@ -33,6 +36,33 @@ deleted. The upstream defaults stay in `Config/Base.xcconfig`, and
 
 Features the fork doesn't need for its first use sit behind Moblin's own
 "Show all settings" switch, which is off by default.
+
+## The rig screens
+
+The rig panel, the join sheet and the one status line over the camera are in
+`Moblin/View/Hub/`. Their colours, shapes and sizes are in `HubLook.swift`, and
+the wording and the rules for what each control shows are in
+`Moblin/Hub/HubProtocol.swift`, with tests in `MoblinTests/Moblin/Hub/`.
+
+- "Live" is only said for the hub's output to the platform. A phone reaching
+  the hub is Connect and Connected, and changing what viewers see is Move
+  stream to phone. While the output is live nothing reads "not live".
+- A status is a shape, a word and a colour together.
+- The decision waiting on a screen is its only filled button. HIDE is a heavy
+  outline in the text colour.
+- A control reads as done only when the hub's state shows it. Until then it
+  says what was asked for ("Hide requested, not confirmed yet").
+- Only what the hub reported is listed.
+
+Debug builds can show every state without a hub, for screenshots and UI
+checks: launch with `-HubShowcase <name>` (the names are in
+`Moblin/View/Hub/HubShowcase.swift`), `-HubShowcaseScroll YES` to open the
+panel at its end. On a Simulator, which a script can't tap, the panel's
+actions also run from system notifications, for example
+`xcrun simctl spawn booted notifyutil -p osb.hub.debug.connect`, and
+`-HubDebugNoSend YES` makes Connect only ask the hub to check the feed, so a
+test picture sent to the phone's slot can stand in for the camera a Simulator
+doesn't have.
 
 ## Known leftovers
 

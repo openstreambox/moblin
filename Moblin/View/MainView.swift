@@ -227,7 +227,7 @@ private struct MenuView: View {
             }
         case .rig:
             NavigationStack {
-                HubPanelView(model: model, hub: model.hub, settings: model.database.hub)
+                HubPanelView(model: model, hub: model.hub)
                     .navigationBarTitleDisplayMode(.inline)
             }
         case .none:

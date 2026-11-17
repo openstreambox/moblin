@@ -55,10 +55,10 @@ func summary(_ welcome: HubMessage) -> [String: Any] {
         "provision_has_passphrase": provision?.srt.url.contains("passphrase=") ?? false,
         "provision_srtla": provision?.srtla.map { "\($0.host):\($0.port)" } ?? "none",
         "session": state?.session.live ?? "none",
-        "line": hubStatusLine(state: state,
-                              me: device?["id"] as? String,
-                              connected: true,
-                              pending: welcome.bool("pending") ?? false).text,
+        "line": hubStatus(state: state,
+                          me: device?["id"] as? String,
+                          connected: true,
+                          pending: welcome.bool("pending") ?? false).text,
     ]
 }
 
