@@ -52,6 +52,7 @@ struct HubGrantActionsView: View {
     // The crew list offers only ending; changing lives in Who has access.
     var offersChange = true
     var endLabel: String?
+    var filled = false
 
     private func ask(_ action: HubAccessAction) {
         hub.accessFailed = nil
@@ -68,7 +69,7 @@ struct HubGrantActionsView: View {
                     model.hubAllow(row.id)
                 }
             }
-            .buttonStyle(HubRowButtonStyle(filled: true))
+            .buttonStyle(HubRowButtonStyle(filled: filled))
             .accessibilityHint(row.allows)
         }
         if offersChange, let hand = row.hand {
@@ -333,6 +334,7 @@ private struct HubGrantRowView: View {
     let model: Model
     @ObservedObject var hub: HubProvider
     let row: HubAccessRow
+    var filled = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -370,7 +372,7 @@ private struct HubGrantRowView: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(row.spoken)
-            HubGrantActionsView(model: model, hub: hub, row: row)
+            HubGrantActionsView(model: model, hub: hub, row: row, filled: filled)
         }
         .padding(.vertical, 4)
         .listRowBackground(HubLook.surface)
@@ -523,6 +525,62 @@ private struct HubAccessLinkRowView: View {
     }
 }
 
+private struct HubTakeoverWaitingView: View {
+    let model: Model
+    @ObservedObject var hub: HubProvider
+    let takeover: HubTakeoverWaiting
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(Array(takeover.lines.enumerated()), id: \.offset) { index, line in
+                    Label {
+                        Text(line)
+                            .font(.subheadline)
+                            .foregroundStyle(HubLook.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        HubStatusMarkView(kind: index == 0 ? .caution : .ready)
+                    }
+                }
+            }
+            .accessibilityElement(children: .combine)
+            if !takeover.allowAll.isEmpty {
+                Text(HubWords.Takeover.wasIn)
+                    .font(.headline)
+                    .foregroundStyle(HubLook.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(takeover.allowAll) { device in
+                        Label {
+                            Text(device.name)
+                                .foregroundStyle(HubLook.text)
+                        } icon: {
+                            HubStatusMarkView(kind: .connecting)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                Button(HubWords.Takeover.allowAll) {
+                    model.hubAllowAll(takeover.allowAll)
+                }
+                .buttonStyle(HubRowButtonStyle(filled: true))
+                .disabled(!hub.connected || hub.accessBusy.contains(hubAllowAllGrant))
+                .accessibilityHint(hubListAnd(takeover.allowAll.map(\.name)))
+                HubAccessFailureView(hub: hub, grant: hubAllowAllGrant)
+            }
+            ForEach(hub.allowAllSaid, id: \.self) { line in
+                Text(line)
+                    .font(.footnote)
+                    .foregroundStyle(HubLook.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 4)
+        .listRowBackground(HubLook.surface)
+    }
+}
+
 struct HubAccessView: View {
     let model: Model
     @ObservedObject var hub: HubProvider
@@ -559,8 +617,11 @@ struct HubAccessView: View {
                 }
                 ForEach(page.sections) { section in
                     Section {
+                        if section.id == "waiting", let takeover = page.takeover {
+                            HubTakeoverWaitingView(model: model, hub: hub, takeover: takeover)
+                        }
                         ForEach(section.rows) { row in
-                            HubGrantRowView(model: model, hub: hub, row: row)
+                            HubGrantRowView(model: model, hub: hub, row: row, filled: page.primaryAllow == row.id)
                         }
                     } header: {
                         HubListHeader(text: section.tag.map { "\(section.title) · \($0)" } ?? section.title)

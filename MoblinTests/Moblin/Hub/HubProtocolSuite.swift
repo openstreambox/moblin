@@ -273,4 +273,43 @@ struct HubProtocolSuite {
         #expect(hubOpenRequests([.disconnect], state: checked, me: "dev-phone") == [.disconnect])
         #expect(hubOpenRequests([.disconnect], state: listening, me: "dev-phone") == [])
     }
+
+    @Test
+    func hideShowsTheActionOrTheState() {
+        let unreachable = "Can't reach your hub right now. HIDE works again once it answers."
+        let action = hubHideControl(.hide, reachable: true)
+        #expect(action == HubHideControl(face: .action, pressable: true, disabled: false))
+        #expect(action?.word == "HIDE")
+        #expect(hubHideControl(.hideRequested, reachable: true)
+            == HubHideControl(face: .action, pressable: false, disabled: false, requested: true))
+        #expect(hubHideControl(.hide, reachable: false)
+            == HubHideControl(face: .action, pressable: false, disabled: true, reason: unreachable))
+        let state = hubHideControl(.hidden(generation: 4, canShow: true), reachable: true)
+        #expect(state == HubHideControl(face: .state, pressable: false, disabled: false,
+                                        show: .offer(generation: 4)))
+        #expect(state?.word == "Privacy screen on")
+        #expect(hubHideControl(.hidden(generation: 4, canShow: true), reachable: false)
+            == HubHideControl(face: .state, pressable: false, disabled: true, reason: unreachable,
+                              show: .unreachable))
+        let helper = HubHideControl(face: .state, pressable: false, disabled: true,
+                                    reason: "Only the streamer can show the picture again.")
+        #expect(hubHideControl(.hidden(generation: 4, canShow: false), reachable: true) == helper)
+        #expect(hubHideControl(.hidden(generation: 4, canShow: false), reachable: false) == helper)
+        #expect(hubHideControl(.showRequested, reachable: true)
+            == HubHideControl(face: .state, pressable: false, disabled: false, show: .requested))
+        #expect(hubHideControl(nil, reachable: true) == nil)
+    }
+
+    @Test
+    func connectIsFilledOnlyWhileItIsTheNextStep() {
+        let ready = state(feeds: [feed("dev-phone", "listening")], devices: [phone])
+        #expect(hubConnectIsPrimary(ready, allowWaits: false))
+        #expect(!hubConnectIsPrimary(ready, allowWaits: true))
+        let live = state(live: "live", output: "live", program: "dev-pc",
+                         feeds: [feed("dev-phone", "listening")], devices: [pc, phone])
+        #expect(!hubConnectIsPrimary(live, allowWaits: false))
+        let ended = state(live: "ended", feeds: [feed("dev-phone", "listening")], devices: [phone])
+        #expect(!hubConnectIsPrimary(ended, allowWaits: false))
+        #expect(!hubConnectIsPrimary(nil, allowWaits: false))
+    }
 }

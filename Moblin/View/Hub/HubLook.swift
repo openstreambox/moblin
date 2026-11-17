@@ -6,11 +6,8 @@ import SwiftUI
 // colour together. Without it they use the system's own colours.
 //
 // Rules of the look:
-// - The decision waiting on a screen is its only filled button, in ink on
-//   paper and paper on ink. Calm screens carry none.
 // - Copper is the latch in the mark and nothing else.
 // - Status colours are for status only. HIDE is a heavy outline in the text
-//   colour, never filled.
 // - Flat: hairline borders, small corners, no shadows.
 
 private func themed(light: UInt32, dark: UInt32, system: UIColor) -> Color {
@@ -250,11 +247,20 @@ struct HubMarkView: View {
     }
 }
 
-// The one filled button on a screen: the decision that is waiting.
 struct HubDecisionButtonStyle: ButtonStyle {
+    var filled = true
     @Environment(\.isEnabled) private var enabled
 
+    @ViewBuilder
     func makeBody(configuration: Configuration) -> some View {
+        if filled {
+            filledBody(configuration)
+        } else {
+            HubOutlineButtonStyle().makeBody(configuration: configuration)
+        }
+    }
+
+    private func filledBody(_ configuration: Configuration) -> some View {
         configuration.label
             .font(.headline)
             .multilineTextAlignment(.center)
@@ -290,6 +296,59 @@ struct HubOutlineButtonStyle: ButtonStyle {
             )
             .opacity(enabled ? 1 : 0.4)
             .contentShape(Rectangle())
+    }
+}
+
+struct HubEyeOffView: View {
+    var body: some View {
+        Image(systemName: "eye.slash")
+            .font(.headline.weight(.bold))
+            .accessibilityHidden(true)
+    }
+}
+
+struct HubHideFace: View {
+    let control: HubHideControl
+
+    private var color: Color {
+        control.disabled ? HubLook.textMuted : HubLook.text
+    }
+
+    private var border: Color {
+        control.disabled ? HubLook.border : HubLook.text
+    }
+
+    private var stroke: StrokeStyle {
+        StrokeStyle(lineWidth: HubLook.heavy, dash: control.requested ? [6, 4] : [])
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HubEyeOffView()
+            Text(control.word)
+                .font(.headline)
+                .tracking(control.face == .action ? 1 : 0)
+        }
+        .foregroundStyle(color)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity, minHeight: HubLook.minTouchTarget)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 4)
+        .background(control.face == .state || control.disabled ? HubLook.surfaceMuted : HubLook.surface,
+                    in: RoundedRectangle(cornerRadius: HubLook.radiusControl))
+        .overlay(
+            RoundedRectangle(cornerRadius: HubLook.radiusControl)
+                .inset(by: HubLook.heavy / 2)
+                .stroke(border, style: stroke)
+        )
+        .contentShape(Rectangle())
+    }
+}
+
+struct HubPressButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.7 : 1)
     }
 }
 
@@ -332,9 +391,6 @@ struct HubCard<Content: View>: View {
 // by VoiceOver as one element.
 struct HubStatusView: View {
     let status: HubStatus
-    // Off where a control right below already says the same sentence.
-    var showLine = true
-    var showPhone = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -345,14 +401,20 @@ struct HubStatusView: View {
                     .foregroundStyle(HubLook.text)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if showLine, let line = status.line {
+            if let line = status.line {
                 Text(line)
                     .font(.body)
                     .foregroundStyle(HubLook.textMuted)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if showPhone, let phone = status.phone {
+            if let phone = status.phone {
                 Text(phone)
+                    .font(.subheadline)
+                    .foregroundStyle(HubLook.text)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let note = status.note {
+                Text(note)
                     .font(.subheadline)
                     .foregroundStyle(HubLook.text)
                     .fixedSize(horizontal: false, vertical: true)

@@ -677,7 +677,7 @@ struct HubCrewSuite {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         #expect(HubEndTime.hour.request(now: now)["end_time"] as? String == "2026-11-17T11:00:00.000Z")
         #expect(HubEndTime.threeHours.request(now: now)["end_time"] as? String == "2026-11-17T13:00:00.000Z")
-        #expect(HubEndTime.week.request(now: now)["end_time"] as? String == "2026-11-24T10:00:00.000Z")
+        #expect(HubEndTime.week.request(now: now)["end_time"] as? String == "2026-11-24T09:59:00.000Z")
         #expect(HubEndTime.noEnd.request(now: now)["end_time"] is NSNull)
         #expect(HubEndTime.allCases.compactMap(\.seconds).allSatisfy { $0 >= 60 && $0 <= 7 * 86400 })
         #expect(HubEndTime.allCases.map(\.label) ==
@@ -1077,5 +1077,23 @@ struct HubCrewSuite {
                     + "can, including removing your devices.",
             ])
         }
+    }
+
+    @Test
+    func anOwnersEndTimeWhileWaitingIsNotTheWait() {
+        let state = hubState(#"{"device":"dev-jo","since":"2026-11-17T18:00:00.000Z","ends_at":"2026-11-17T19:05:00.000Z","ends_why":"time","end_time":"2026-11-17T19:05:00.000Z","stopped_at":null,"wait_until":"2026-11-24T18:00:00.000Z","asked_at":null}"#,
+                             live: "ready")
+        let page = hubCrewPage(state: state, access: nil, me: "dev-jo", role: "helper", when: at("2026-11-17T18:06:00Z"))
+        #expect(page.session?.ends == "Your handover ends today at 19:05, the end time an owner set.")
+    }
+
+    @Test
+    func anAskWithoutAnEndSaysNone() {
+        let clock = at("2026-11-17T18:06:00Z")
+        #expect(HubWords.Access.Ask.line(live: true, endsAt: nil, when: clock)
+            == "The stream is live. If nobody answers, it keeps running.")
+        #expect(HubWords.Access.Ask.line(live: false, endsAt: nil, when: clock) == "The stream isn't live.")
+        #expect(HubWords.Access.Ask.line(live: false, endsAt: "2026-11-17T21:00:00.000Z", when: clock)
+            == "The stream isn't live. If nobody answers, the handover ends today at 21:00.")
     }
 }

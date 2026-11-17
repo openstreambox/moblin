@@ -34,6 +34,7 @@ struct HubAccessConfirm: Equatable {
 // The id the trail's own requests are filed under.
 let hubTrailGrant = "trail"
 let hubGiveBackGrant = "stream#give-back"
+let hubAllowAllGrant = "waiting#allow-all"
 
 // The handed stream's own requests (Take back, Keep, an end time) are filed
 // under this id, apart from the same device's row.
@@ -91,6 +92,7 @@ extension Model {
                       connected: hub.connected,
                       older: hub.accessOlder,
                       more: hub.accessMore,
+                      seen: hub.seen,
                       when: hubWhen())
     }
 
@@ -154,6 +156,7 @@ extension Model {
         hub.accessConfirming = nil
         hub.accessFailed = nil
         hub.accessBusy = []
+        hub.allowAllSaid = []
         hub.madeLink = nil
         hub.choosingEndTime = nil
         hub.handoverAnswer = nil
@@ -196,8 +199,7 @@ extension Model {
         if state.session.runBy?.device != me {
             hub.ending = nil
         }
-        // Answered by any owner, or the handover is over: the question is gone.
-        if state.session.runBy?.askedAt == nil {
+        if state.session.runBy?.askedAt == nil, hub.askNoticed || before == nil {
             hubWithdrawAskNotice()
         }
         hubWatchHandover()
@@ -325,8 +327,7 @@ extension Model {
             let who = message.string("for") ?? ""
             let title = who.isEmpty ? HubWords.Access.Ask.titleDevice(device) : HubWords.Access.Ask.title(who)
             let endsAt = message.string("ends_at")
-            let line = message.bool("live") == true ? HubWords.Access.Ask.live(hubWhen().text(endsAt))
-                : HubWords.Access.Ask.idle(hubWhen().text(endsAt))
+            let line = HubWords.Access.Ask.line(live: message.bool("live") == true, endsAt: endsAt, when: hubWhen())
             makeToast(title: title, subTitle: line)
             hubPostAskNotice(title: title, line: line)
             hubRefreshAccess()
@@ -359,9 +360,6 @@ extension Model {
     }
 
     func hubWithdrawAskNotice() {
-        guard hub.askNoticed else {
-            return
-        }
         hub.askNoticed = false
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [hubAskNotice])
@@ -374,13 +372,15 @@ extension Model {
     private func hubAccessRequest(_ grant: String,
                                   _ type: String,
                                   _ params: [String: Any],
-                                  done: ((HubMessage) -> Void)? = nil)
+                                  done: ((HubMessage) -> Void)? = nil,
+                                  refused: (() -> Void)? = nil)
     {
         hub.accessConfirming = nil
         hub.accessFailed = nil
         hub.accessFailedLine = HubWords.Access.failed
         hub.handoverAnswer = nil
         guard let connection = hub.connection else {
+            refused?()
             hub.accessFailed = grant
             return
         }
@@ -390,6 +390,7 @@ extension Model {
                 let reply = try await connection.request(type, params)
                 done?(reply)
             } catch let error as HubRequestError {
+                refused?()
                 switch error.code {
                 case "confirm_needed":
                     // A new co-owner's device: the hub wants the owner's
@@ -413,6 +414,33 @@ extension Model {
     // making someone a co-owner means.
     func hubAllow(_ device: String, coOwner: Bool = false) {
         hubAccessRequest(device, "device.allow", coOwner ? ["device": device, "co_owner": true] : ["device": device])
+    }
+
+    func hubAllowAll(_ devices: [HubWaitingName]) {
+        guard let connection = hub.connection else {
+            hub.accessFailed = hubAllowAllGrant
+            hub.accessFailedLine = HubWords.Access.failed
+            return
+        }
+        hub.accessFailed = nil
+        hub.allowAllSaid = []
+        hub.accessBusy.insert(hubAllowAllGrant)
+        Task { @MainActor in
+            var allowed = 0
+            var own: [String] = []
+            for device in devices {
+                do {
+                    _ = try await connection.request("device.allow", ["device": device.id])
+                    allowed += 1
+                } catch {
+                    own.append(device.name)
+                }
+            }
+            hub.allowAllSaid = (allowed > 0 ? [HubWords.Takeover.allowed(allowed)] : [])
+                + own.map { HubWords.Takeover.ownYes($0) }
+            hub.accessBusy.remove(hubAllowAllGrant)
+            hubRefreshAccess()
+        }
     }
 
     // The person a waiting device would make a co-owner, when the list says so.
@@ -466,7 +494,10 @@ extension Model {
 
     // Removes a device, ends a mod link or closes an invite.
     func hubEndAccess(_ grant: String) {
-        hubAccessRequest(grant, "access.end", ["grant": grant])
+        hubAskedRemoval(grant)
+        hubAccessRequest(grant, "access.end", ["grant": grant], refused: { [weak self] in
+            self?.hubRefusedRemoval(grant)
+        })
     }
 
     func hubChangeAccess(_ grant: String, _ change: HubAccessChange) {

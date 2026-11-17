@@ -1,6 +1,15 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "The takeover removed 1 device. Its name may not be in this phone's history." : {
+      "extractionState" : "manual"
+    },
+    "This phone has no names of recently removed devices. The history may be incomplete." : {
+      "extractionState" : "manual"
+    },
+    "The takeover removed %lld devices. Their names may not be in this phone's history." : {
+      "extractionState" : "manual"
+    },
     "This hub couldn’t list who has access." : {
       "localizations" : {
         "en" : {

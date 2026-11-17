@@ -197,64 +197,95 @@ private struct HubFeedControlView: View {
     }
 }
 
-// HIDE and the way back. The line under it follows the state: what it
-// does, that it was asked for, then that the privacy screen is on.
 private struct HubPrivacyControlView: View {
     let model: Model
-    let control: HubPrivacyControl
+    let control: HubHideControl
     let live: Bool
-    // "Hidden by Sam · Mod", when someone else asked for it.
-    let hiddenBy: String?
 
     private func idleLine() -> String {
-        live ? String(localized: "Covers the picture and the sound for viewers. The stream stays live.")
-            : String(localized: "Covers the picture and the sound for viewers.")
+        live ? HubWords.Hide.idle : HubWords.Hide.idleNotLive
+    }
+
+    private func line() -> String? {
+        if let reason = control.reason {
+            return reason
+        }
+        if control.requested {
+            return HubWords.Hide.requested
+        }
+        return control.face == .action ? idleLine() : nil
+    }
+
+    private func spoken() -> String {
+        [control.word, control.reason].compactMap { $0 }.joined(separator: ". ")
+    }
+
+    @ViewBuilder
+    private func face() -> some View {
+        if control.face == .action || control.disabled {
+            Button {
+                if control.face == .action {
+                    model.hubHide()
+                }
+            } label: {
+                HubHideFace(control: control)
+            }
+            .buttonStyle(HubPressButtonStyle())
+            .disabled(!control.pressable)
+            .accessibilityLabel(spoken())
+            .accessibilityHint(control.face == .action && control.pressable ? idleLine() : "")
+        } else {
+            HubHideFace(control: control)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(spoken())
+        }
+    }
+
+    @ViewBuilder
+    private func show() -> some View {
+        switch control.show {
+        case let .offer(generation):
+            Button {
+                model.hubShowPicture(generation: generation)
+            } label: {
+                Text(HubWords.Hide.show)
+            }
+            .buttonStyle(HubOutlineButtonStyle())
+            .accessibilityHint(HubWords.Hide.showLine)
+        case .unreachable:
+            Button {} label: {
+                Text(HubWords.Hide.show)
+            }
+            .buttonStyle(HubOutlineButtonStyle())
+            .disabled(true)
+        case .requested:
+            HubCard(muted: true) {
+                HubUnconfirmedView(title: String(localized: "Show requested, not confirmed yet"),
+                                   line: String(localized: "The privacy screen stays on until the hub confirms."))
+            }
+        case nil:
+            EmptyView()
+        }
     }
 
     var body: some View {
-        switch control {
-        case .hide:
-            VStack(alignment: .leading, spacing: 6) {
-                Button {
-                    model.hubHide()
-                } label: {
-                    Text("HIDE")
-                        .tracking(1)
-                }
-                .buttonStyle(HubOutlineButtonStyle(heavy: true))
-                .accessibilityLabel(String(localized: "Hide"))
-                .accessibilityHint(idleLine())
-                HubHintView(text: idleLine())
-            }
-        case .hideRequested:
-            HubCard(muted: true, heavy: true) {
-                HubUnconfirmedView(title: String(localized: "Hide requested, not confirmed yet"))
-            }
-        case let .hidden(generation, canShow):
-            VStack(alignment: .leading, spacing: HubLook.stack) {
-                HubCard(muted: true, heavy: true) {
-                    HubConfirmedView(kind: .hidden,
-                                     title: String(localized: "Your privacy screen is on. Viewers don't see you."),
-                                     line: hiddenBy)
-                }
-                if canShow {
-                    Button {
-                        model.hubShowPicture(generation: generation)
-                    } label: {
-                        Text("Show the picture")
+        VStack(alignment: .leading, spacing: 6) {
+            if control.face == .state, control.show != nil {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) {
+                        face()
+                        show()
                     }
-                    .buttonStyle(HubOutlineButtonStyle())
-                    .accessibilityHint(String(localized: "Viewers see and hear you again."))
-                    HubHintView(text: String(localized: "Viewers see and hear you again."))
-                } else {
-                    HubHintView(text: String(localized: "Only the streamer can show the picture again."))
-                        .accessibilityHidden(false)
+                    VStack(alignment: .leading, spacing: 8) {
+                        face()
+                        show()
+                    }
                 }
+            } else {
+                face()
             }
-        case .showRequested:
-            HubCard(muted: true, heavy: true) {
-                HubUnconfirmedView(title: String(localized: "Show requested, not confirmed yet"),
-                                   line: String(localized: "The privacy screen stays on until the hub confirms."))
+            if let line = line() {
+                HubHintView(text: line)
             }
         }
     }
@@ -303,12 +334,13 @@ private struct HubWaitingDeviceView: View {
     let model: Model
     @ObservedObject var hub: HubProvider
     let waiting: HubWaiting
+    let filled: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HubSectionLabel(text: HubWords.Access.waiting)
             HubCard {
-                HubWaitingView(model: model, hub: hub, waiting: waiting)
+                HubWaitingView(model: model, hub: hub, waiting: waiting, filled: filled)
             }
         }
     }
@@ -497,9 +529,9 @@ private struct HubJoinedPanelView: View {
         let status = model.hubStatus()
         let controls = model.hubControlList()
         HubSetupHeaderView(name: settings.name)
+        let hide = model.hubHideNow()
         HubCard {
-            // While hidden, the privacy card below says it and who asked.
-            HubStatusView(status: status, showLine: status.kind != .hidden, showPhone: status.kind != .hidden)
+            HubStatusView(status: status)
             if !hub.connected, !hub.pending {
                 Button {
                     model.hubReconnectNow()
@@ -516,21 +548,21 @@ private struct HubJoinedPanelView: View {
         }
         let crew = model.hubCrewPageNow()
         let waiting = hub.connected ? crew.waiting : []
+        let firstAllow = waiting.first { $0.allow }?.id
         ForEach(waiting) { waiting in
-            HubWaitingDeviceView(model: model, hub: hub, waiting: waiting)
+            HubWaitingDeviceView(model: model, hub: hub, waiting: waiting, filled: waiting.id == firstAllow)
         }
         if let session = crew.session {
             HubSessionOwnerView(model: model, hub: hub, session: session)
         }
+        let connectPrimary = hub.connected && !hub.pending
+            && (controls.feed == .connect || controls.feed == .connecting)
+            && hubConnectIsPrimary(hub.state, allowWaits: firstAllow != nil)
         if hub.connected, let stream = crew.stream, let ask = stream.ask {
-            // One filled button per view: Allow, then Connect while it is
-            // the next step, come first, and the panel carries none while
-            // the output is live.
             HubStreamAskView(model: model,
                              hub: hub,
                              stream: stream,
-                             filled: ask.filled && controls.feed != .connect && controls.feed != .connecting
-                                 && hub.state?.isLive != true)
+                             filled: ask.filled && !connectPrimary && hub.state?.isLive != true)
         }
         if hub.connected, !hub.pending {
             if let move = controls.move {
@@ -539,19 +571,13 @@ private struct HubJoinedPanelView: View {
             // Connect comes first while it is the next step; once connected,
             // HIDE sits above Disconnect so it stays within reach.
             if let feed = controls.feed, feed == .connect || feed == .connecting {
-                // Allow, when someone waits, is the screen's one decision.
                 HubFeedControlView(model: model,
                                    control: feed,
-                                   isDecision: !waiting.contains { $0.allow },
+                                   isDecision: connectPrimary,
                                    onAir: controls.move == .onAir)
             }
-            if let privacy = controls.privacy {
-                HubPrivacyControlView(model: model,
-                                      control: privacy,
-                                      live: hub.state?.isLive == true,
-                                      hiddenBy: hub.state.flatMap {
-                                          hubHiddenByLine($0.session.privacy, me: settings.deviceId)
-                                      })
+            if let hide {
+                HubPrivacyControlView(model: model, control: hide, live: hub.state?.isLive == true)
             }
             if let feed = controls.feed, feed == .connected || feed == .disconnecting {
                 HubFeedControlView(model: model,
@@ -564,6 +590,9 @@ private struct HubJoinedPanelView: View {
                 HubFactsView(facts: facts)
             }
         } else if !hub.pending {
+            if let hide {
+                HubPrivacyControlView(model: model, control: hide, live: hub.state?.isLive == true)
+            }
             HubHintView(text: String(localized: "The controls come back when the hub answers. Until then nothing is assumed about the stream."))
                 .accessibilityHidden(false)
         }
