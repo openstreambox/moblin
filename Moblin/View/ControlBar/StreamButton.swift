@@ -128,13 +128,49 @@ private struct SetupButtonView: View {
     }
 }
 
+// To the rig's hub the button follows what the hub reports about this
+// phone, so it never says Connect while the status says connected.
+private struct HubStreamButtonView: View {
+    @EnvironmentObject var model: Model
+    @ObservedObject var hub: HubProvider
+    @Binding var presentingGoLiveNotificationConfirm: Bool
+
+    var body: some View {
+        switch model.hubControlList().feed {
+        case .disconnecting:
+            StreamButtonText(database: model.database, text: String(localized: "Disconnecting…"))
+                .opacity(0.6)
+        case .connected:
+            EndButtonView(presentingGoLiveNotificationConfirm: $presentingGoLiveNotificationConfirm)
+        case .connecting:
+            if model.isLive {
+                EndButtonView(presentingGoLiveNotificationConfirm: $presentingGoLiveNotificationConfirm)
+            } else {
+                StreamButtonText(database: model.database, text: String(localized: "Connecting…"))
+                    .opacity(0.6)
+            }
+        case .connect, nil:
+            if model.isLive {
+                EndButtonView(presentingGoLiveNotificationConfirm: $presentingGoLiveNotificationConfirm)
+            } else {
+                GoLiveButtonView(presentingGoLiveNotificationConfirm: $presentingGoLiveNotificationConfirm)
+            }
+        }
+    }
+}
+
 struct StreamButton: View {
     @EnvironmentObject var model: Model
     @ObservedObject var show: Show
     @State private var presentingGoLiveNotificationConfirm = false
 
     var body: some View {
-        if model.isLive {
+        if model.isCurrentStreamHub() {
+            HubStreamButtonView(hub: model.hub,
+                                presentingGoLiveNotificationConfirm: $presentingGoLiveNotificationConfirm)
+                .disabled(show.chatPhone)
+                .opacity(show.chatPhone ? 0.5 : 1)
+        } else if model.isLive {
             EndButtonView(presentingGoLiveNotificationConfirm: $presentingGoLiveNotificationConfirm)
                 .disabled(show.chatPhone)
                 .opacity(show.chatPhone ? 0.5 : 1)
