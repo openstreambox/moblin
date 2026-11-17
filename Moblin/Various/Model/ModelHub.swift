@@ -73,6 +73,8 @@ class HubProvider: ObservableObject {
     var showcaseDraft: String?
     var showcaseSection: String?
     var showcaseFailure: String?
+    var showcaseHand = false
+    var showcaseOwnName: String?
     #endif
     var provision: HubProvision?
     var connection: HubConnection?
@@ -94,6 +96,8 @@ class HubProvider: ObservableObject {
     @Published var madeLink: HubMadeLink?
     // The screens pushed on top of the panel.
     @Published var path: [HubScreen] = []
+    @Published var said: String?
+    var sessionTold: (allows: [String], limits: [String: String])?
     var accessRefreshTask: Task<Void, Never>?
     var accessRefreshAgain = false
 
@@ -215,11 +219,11 @@ extension Model {
         do {
             link = try HubJoinLink(url: url)
         } catch {
-            makeErrorToast(title: String(localized: "This code isn't from a rig hub"))
+            makeErrorToast(title: HubWords.Setup.notASetupCode)
             return
         }
         guard !streaming, !isRecording else {
-            makeErrorToast(title: String(localized: "Can't join a rig while streaming or recording"),
+            makeErrorToast(title: HubWords.Setup.cantJoinWhileStreaming,
                            subTitle: String(localized: "Disconnect first, then scan the code again."))
             return
         }
@@ -323,7 +327,7 @@ extension Model {
         guard let key = HubKeychain.loadDeviceKey(),
               let hubKey = hubBase64UrlDecode(database.hub.hubKey)
         else {
-            logger.info("hub: no device key, forgetting the rig")
+            logger.info("hub: no device key, forgetting the setup")
             forgetHub()
             return
         }
@@ -436,7 +440,7 @@ extension Model {
             forgetHub()
             hub.notice = .removed(hub: name)
             makeWarningToast(title: String(localized: "This phone was removed from \(name)"),
-                             subTitle: String(localized: "Its stream settings from the rig are gone."))
+                             subTitle: HubWords.Setup.settingsGone)
         case "message":
             if let body = message.object["body"] as? [String: Any], let text = body["text"] as? String {
                 let from = message.string("from").flatMap { hub.state?.device($0)?.name } ?? database.hub.name
@@ -448,7 +452,6 @@ extension Model {
     }
 
     // MARK: - Settings the rig fills in
-
     // Writes the provisioned stream (SRT, or SRTLA when Moblink bonding is
     // on) into one Moblin stream marked as the rig's, selects it, and sets
     // remote control when the hub offers it. Nothing is shown to copy.
@@ -460,7 +463,7 @@ extension Model {
         if let id = database.hub.streamId, let existing = findStream(id: id) {
             target = existing
         } else {
-            target = SettingsStream(name: String(localized: "Rig: \(database.hub.name)"))
+            target = SettingsStream(name: HubWords.Setup.streamName(database.hub.name))
             database.streams.append(target)
             database.hub.streamId = target.id
         }
@@ -544,12 +547,13 @@ extension Model {
         hub.state = nil
         hub.provision = nil
         hub.pending = false
+        hub.sessionTold = nil
+        hub.said = nil
         hubForgetAccess()
         storeSettings()
     }
 
     // MARK: - Controls
-
     // Connect: send this phone's picture to the hub and let it check it.
     // Viewers see nothing new.
     func hubConnect() {
@@ -661,6 +665,9 @@ extension Model {
                 case "stale_show":
                     makeWarningToast(title: String(localized: "Someone hid the picture again since"),
                                      subTitle: String(localized: "The privacy screen stays on."))
+                case "slow_down" where kind == .hide:
+                    makeToast(title: HubWords.Crew.alreadyHidden,
+                              subTitle: String(localized: "Your privacy screen is on. Viewers don't see you."))
                 case "feed_not_checked":
                     makeWarningToast(title: String(localized: "Connect this phone first"))
                 default:

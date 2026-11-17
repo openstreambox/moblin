@@ -1,6 +1,6 @@
 # OSB fork of Moblin
 
-This branch builds Moblin as **OSB**, one app for setting up a streaming rig,
+This branch builds Moblin as **OSB**, one app for joining a streaming setup,
 using a phone as a companion or remote control, and streaming. It is based on
 [Moblin](https://github.com/eerimoq/moblin) by Erik Moqvist, under the MIT
 licence in `LICENSE`. The licence and the upstream credits stay as they are.
@@ -13,7 +13,7 @@ deleted. The upstream defaults stay in `Config/Base.xcconfig`, and
   permission prompts and the texts in every language. `utils/rename_app.py`
   rewrites the built app's string tables, so `Common/Localizable.xcstrings`
   stays as it is upstream.
-- `MOBLIN_URL_SCHEME = osb`: settings links are `osb://?…`. The rig's join
+- `MOBLIN_URL_SCHEME = osb`: settings links are `osb://?…`. The setup's join
   link (`osb-hub://join#…`) and the demo dashboard's link (`openstreambox://`)
   are separate schemes and keep working.
 - `MOBLIN_EXCLUDED_FILES = MoblinBrand.xcassets`: the Moblin app icons, the
@@ -21,7 +21,7 @@ deleted. The upstream defaults stay in `Config/Base.xcconfig`, and
   the build. `OsbBrand.xcassets` in each target provides the OSB icons, which
   `Fork/Icons/render.sh` renders from the SVG sources there.
 - `MOBLIN_HIDDEN_FEATURES`: Swift compilation conditions that hide features.
-- `MOBLIN_FORK_FEATURES = OSB_BRAND`: the rig panel and the join sheet use the
+- `MOBLIN_FORK_FEATURES = OSB_BRAND`: the setup panel and the join sheet use the
   OpenStreamBox look (paper and forest ink, the latch-case mark). Without it
   they use the system's colours and a system symbol.
 
@@ -37,9 +37,10 @@ deleted. The upstream defaults stay in `Config/Base.xcconfig`, and
 Features the fork doesn't need for its first use sit behind Moblin's own
 "Show all settings" switch, which is off by default.
 
-## The rig screens
+## The setup screens
 
-The rig panel, the join sheet and the one status line over the camera are in
+The app says "setup" for the gear and the people that stream together. The
+setup panel, the join sheet and the one status line over the camera are in
 `Moblin/View/Hub/`. Their colours, shapes and sizes are in `HubLook.swift`, and
 the wording and the rules for what each control shows are in
 `Moblin/Hub/HubProtocol.swift`, with tests in `MoblinTests/Moblin/Hub/`.
@@ -66,26 +67,36 @@ doesn't have.
 
 ## The crew and "Who has access"
 
-An owner device gets two more screens from the rig panel, in
+An owner device gets two more screens from the setup panel, in
 `Moblin/View/Hub/HubCrewViews.swift` and `HubAccessViews.swift`. Their words
 are in one file, `Moblin/Hub/HubWords.swift`, and the reading of the hub's
 list and its wording in `Moblin/Hub/HubAccess.swift`.
 
-- **Crew:** make a helper link (who it is for, how long the link stays open,
-  and whether access ends with the stream, after a time or only when removed)
-  or a mod link, share it with the system's share sheet or as a code to scan,
-  see the links that are still open, and end one. A link is shown once. A
-  helper still waits for Allow, and Allow is on the panel.
+- **Crew:** who is in, by person, one line each, in the same groups as the
+  other OpenStreamBox apps: each owner with their devices, Co-owners, Helpers
+  and Mods, each with its own way in. Add a helper (who it is for, when access
+  ends, how long the link stays open, and "Let them run this stream"), add a
+  mod, or add a co-owner by name. The link is shared with the system's share
+  sheet or as a code to scan, and shown once. A waiting device is allowed on
+  the panel or here; a new co-owner's device only after a second, explicit
+  "Make co-owner", and another owner's own device only by that owner. An owner
+  sets their own name here too.
+- **A handed-over stream:** an owner hands one stream to a helper, by a link
+  or on their row, and sees who runs it, until when and what they let in,
+  with Take back. The phone that was handed a stream says so, says what it may
+  do and until when, adds helpers and mods for that stream only, and gives the
+  stream back.
 - **Who has access:** every device, helper, mod and unused invite with its
   role, what it may do in a plain sentence, how it joined, who gave it and when
   it ends; Allow, Remove or End now with one confirm, Change when it ends, and
   what happened. It also shows who runs the stream, hands the stream over and
-  takes it back, and clears the list of what happened.
+  takes it back, and clears the list of what happened. The owners' web links
+  to the list are shown with End now.
 - Both are read over the phone's own encrypted hub connection. Nothing opens a
   web page.
-- Only an owner device is offered any of it. Other devices see who helps, by
-  name, and no buttons. The hub checks every request itself.
-- A new co-owner's device is let in only after a second, explicit confirm.
+- Only an owner device, or the device that runs a handed-over stream, is
+  offered any of it. Other devices see who helps, by name, and no buttons. The
+  hub checks every request itself, and its refusals are said in words.
 - While the privacy screen is on, the status says who asked for it when it
   wasn't this phone.
 

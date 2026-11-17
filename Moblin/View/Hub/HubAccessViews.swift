@@ -5,7 +5,6 @@ import SwiftUI
 // and when it ends; then what happened. Read over the phone's own hub
 // connection and drawn with the system's list. Only an owner device gets
 // it; a row shows only the buttons the hub says this owner has.
-
 // The shared list look: the system's grouped list on the paper background.
 extension View {
     func hubListStyle() -> some View {
@@ -154,6 +153,7 @@ private struct HubAccessConfirmModifier: ViewModifier {
     var coOwner: HubAccessRow.End?
     var hand: HubAccessRow.End?
     var takeBack: HubAccessRow.End?
+    var giveBack: HubAccessRow.End?
     var clear: HubAccessRow.End?
 
     private func current() -> (HubAccessAction, HubAccessRow.End)? {
@@ -169,6 +169,8 @@ private struct HubAccessConfirmModifier: ViewModifier {
             hand
         case .takeBack:
             takeBack
+        case .giveBack:
+            giveBack
         case .clear:
             clear
         }
@@ -195,6 +197,8 @@ private struct HubAccessConfirmModifier: ViewModifier {
             model.hubHandStream(grant)
         case .takeBack:
             model.hubTakeBackStream(grant)
+        case .giveBack:
+            model.hubGiveBackStream()
         case .clear:
             model.hubClearTrail()
         }
@@ -221,6 +225,7 @@ extension View {
                           coOwner: HubAccessRow.End? = nil,
                           hand: HubAccessRow.End? = nil,
                           takeBack: HubAccessRow.End? = nil,
+                          giveBack: HubAccessRow.End? = nil,
                           clear: HubAccessRow.End? = nil) -> some View
     {
         modifier(HubAccessConfirmModifier(model: model,
@@ -230,6 +235,7 @@ extension View {
                                           coOwner: coOwner,
                                           hand: hand,
                                           takeBack: takeBack,
+                                          giveBack: giveBack,
                                           clear: clear))
     }
 }
@@ -277,14 +283,12 @@ private struct HubGrantRowView: View {
                     .font(.body)
                     .foregroundStyle(HubLook.text)
                     .fixedSize(horizontal: false, vertical: true)
-                Text(row.how)
-                    .font(.footnote)
-                    .foregroundStyle(HubLook.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text(row.ends)
-                    .font(.footnote)
-                    .foregroundStyle(HubLook.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
+                ForEach([row.how, row.ends].filter { !$0.isEmpty }, id: \.self) { line in
+                    Text(line)
+                        .font(.footnote)
+                        .foregroundStyle(HubLook.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
                 ForEach(row.notes, id: \.self) { note in
                     Text(note)
                         .font(.footnote.weight(.semibold))
@@ -386,10 +390,66 @@ private struct HubAccessRunningView: View {
                 .buttonStyle(HubRowButtonStyle())
                 .disabled(!hub.connected || hub.accessBusy.contains(grant))
                 .padding(.top, 4)
-                .hubAccessConfirm(model: model, hub: hub, grant: grant, takeBack: takeBack)
                 HubAccessFailureView(hub: hub, grant: grant)
             }
+            if let giveBack = running.giveBack {
+                Button(giveBack.label) {
+                    hub.accessFailed = nil
+                    hub.accessConfirming = HubAccessConfirm(grant: hubGiveBackGrant, action: .giveBack)
+                }
+                .buttonStyle(HubRowButtonStyle())
+                .disabled(!hub.connected || hub.accessBusy.contains(hubGiveBackGrant))
+                .padding(.top, 4)
+                HubAccessFailureView(hub: hub, grant: hubGiveBackGrant)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hubAccessConfirm(model: model,
+                          hub: hub,
+                          grant: running.giveBack != nil ? hubGiveBackGrant : "\(running.device ?? "")#stream",
+                          takeBack: running.takeBack,
+                          giveBack: running.giveBack)
+        .padding(.vertical, 4)
+        .listRowBackground(HubLook.surface)
+    }
+}
+
+private struct HubAccessLinkRowView: View {
+    let model: Model
+    @ObservedObject var hub: HubProvider
+    let row: HubAccessLinkRow
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(row.name)
+                    .font(.headline)
+                    .foregroundStyle(HubLook.text)
+                    .fixedSize(horizontal: false, vertical: true)
+                HubPresenceView(text: row.presence, here: row.here)
+                ForEach(row.facts, id: \.self) { fact in
+                    Text(fact)
+                        .font(.footnote)
+                        .foregroundStyle(HubLook.textMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(row.spoken)
+            if let end = row.end {
+                Button(end.label) {
+                    hub.accessFailed = nil
+                    hub.accessConfirming = HubAccessConfirm(grant: row.id, action: .end)
+                }
+                .buttonStyle(HubRowButtonStyle())
+                .accessibilityLabel("\(end.label): \(row.name)")
+                .disabled(!hub.connected || hub.accessBusy.contains(row.id))
+                .padding(.top, 4)
+            }
+            HubAccessFailureView(hub: hub, grant: row.id)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hubAccessConfirm(model: model, hub: hub, grant: row.id, end: row.end)
         .padding(.vertical, 4)
         .listRowBackground(HubLook.surface)
     }
@@ -437,6 +497,18 @@ struct HubAccessView: View {
                     } header: {
                         HubListHeader(text: section.tag.map { "\(section.title) · \($0)" } ?? section.title)
                             .id(section.id)
+                    }
+                }
+                if !page.links.isEmpty {
+                    Section {
+                        ForEach(page.links) { row in
+                            HubAccessLinkRowView(model: model, hub: hub, row: row)
+                        }
+                    } header: {
+                        HubListHeader(text: HubWords.Access.links)
+                            .id("links")
+                    } footer: {
+                        Text(HubWords.Access.linkCan)
                     }
                 }
                 Section {

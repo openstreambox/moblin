@@ -38,6 +38,18 @@ struct HubDevice: Codable, Equatable {
     var allowed: Bool
     var online: Bool?
     var feed: Bool?
+    var runsStream: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case kind
+        case role
+        case allowed
+        case online
+        case feed
+        case runsStream = "runs_stream"
+    }
 }
 
 struct HubPrivacy: Codable, Equatable {
@@ -58,6 +70,18 @@ struct HubOutput: Codable, Equatable {
     var state: String
 }
 
+struct HubSessionRunBy: Codable, Equatable {
+    var device: String
+    var since: String?
+    var endsAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case device
+        case since
+        case endsAt = "ends_at"
+    }
+}
+
 struct HubSession: Codable, Equatable {
     var id: String
     // ready | live | ended
@@ -65,6 +89,16 @@ struct HubSession: Codable, Equatable {
     var program: String?
     var privacy: HubPrivacy
     var output: HubOutput?
+    var runBy: HubSessionRunBy?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case live
+        case program
+        case privacy
+        case output
+        case runBy = "run_by"
+    }
 }
 
 struct HubState: Codable, Equatable {
@@ -81,6 +115,10 @@ struct HubState: Codable, Equatable {
 
     func device(_ id: String) -> HubDevice? {
         devices.first { $0.id == id }
+    }
+
+    func runsStream(_ device: String?) -> Bool {
+        device != nil && session.runBy?.device == device
     }
 
     // Live means the hub's output is live: the platform shows the stream.
@@ -341,7 +379,7 @@ func hubStatus(state: HubState?, me: String?, connected: Bool, pending: Bool) ->
     if pending {
         return HubStatus(kind: .ready,
                          title: String(localized: "Waiting for Allow"),
-                         line: String(localized: "Someone on the rig has to allow this device."))
+                         line: HubWords.Setup.waitingLine)
     }
     guard connected, let state else {
         return HubStatus(kind: .unknown,
@@ -547,7 +585,8 @@ func hubControls(state: HubState?,
             controls.privacy = .showRequested
         } else {
             controls.privacy = .hidden(generation: session.privacy.generation,
-                                       canShow: role == "admin" || role == "member")
+                                       canShow: role == "admin" || role == "member"
+                                           || state.runsStream(me))
         }
     } else {
         controls.privacy = requested.contains(.hide) ? .hideRequested : .hide
