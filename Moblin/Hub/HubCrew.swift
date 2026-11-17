@@ -197,7 +197,7 @@ private func endOf(_ grant: HubGrant, _ name: String) -> HubAccessRow.End? {
     }
 }
 
-private func deviceRow(_ grant: HubGrant, me: String?, shared: Bool, handoverOn: Bool, when: HubWhen) -> HubCrewRow {
+private func deviceRow(_ grant: HubGrant, me: String?, shared: Bool, runs: Bool, when: HubWhen) -> HubCrewRow {
     let helper = grant.role == "helper"
     let isMe = grant.id == me || grant.isSelf == true
     let aside: String?
@@ -218,7 +218,7 @@ private func deviceRow(_ grant: HubGrant, me: String?, shared: Bool, handoverOn:
                       kind: "device",
                       name: grant.name,
                       aside: aside,
-                      tag: grant.runsStream == true && handoverOn ? HubWords.Crew.runs
+                      tag: runs ? HubWords.Crew.runs
                           : roleTag(grant.role, shared: shared),
                       status: grant.online == true ? HubWords.Crew.present : HubWords.Crew.away,
                       here: grant.online == true,
@@ -352,7 +352,18 @@ func hubCrewPage(state: HubState?,
     }
     let people = access.people ?? []
     let several = people.count > 1
-    let handoverOn = hubHandoverOn(access.stream.runBy?.endsAt, now: when.now)
+    // Whether a device runs the stream right now. The newest state decides,
+    // as it does for the controls; the list can be one request older and
+    // only words the handover.
+    func runsNow(_ device: String?) -> Bool {
+        if let state {
+            return state.runsStream(device, now: when.now)
+        }
+        guard let run = access.stream.runBy, run.kind == "handed", run.device?.id == device else {
+            return false
+        }
+        return hubHandoverOn(run.endsAt, now: when.now)
+    }
     let shared = several || !owner
     func active(_ grant: HubGrant) -> Bool {
         grant.kind == "device" && grant.state == "active"
@@ -364,7 +375,9 @@ func hubCrewPage(state: HubState?,
         people.first { $0.id == grant.person?.id } ?? (people.count == 1 ? people[0] : nil)
     }
     func rows(_ test: (HubGrant) -> Bool) -> [HubCrewRow] {
-        access.grants.filter(test).map { deviceRow($0, me: me, shared: shared, handoverOn: handoverOn, when: when) }
+        access.grants.filter(test).map {
+            deviceRow($0, me: me, shared: shared, runs: runsNow($0.id), when: when)
+        }
     }
     func sent(_ grant: HubGrant) -> Bool {
         grant.kind == "invite" && grant.how == "link"
@@ -416,7 +429,7 @@ func hubCrewPage(state: HubState?,
     groups = groups.filter { !$0.rows.isEmpty || $0.add != nil || $0.yours }
 
     var stream: HubCrewStream?
-    if owner, let run = access.stream.runBy, run.kind == "handed", handoverOn {
+    if owner, let run = access.stream.runBy, run.kind == "handed", runsNow(run.device?.id) {
         let gave = hubGaveList(run.gave)
         let device = run.device?.name ?? ""
         let name = run.forName?.isEmpty == false ? run.forName! : device

@@ -420,6 +420,14 @@ struct HubCrewSuite {
         #expect(page.manages)
         #expect(page.session?.ends == nil)
         #expect(canShow(open, at: much))
+        // Who has access says nothing about an end it doesn't have.
+        let facts = hubAccessPage(handedAccess(endsAt: nil), state: open, connected: true, when: much)?.running?.facts
+        #expect(facts == ["Handed over by an owner device · Tuesday 17 Nov at 08:00"])
+        #expect(hubAccessPage(handedAccess(endsAt: nil), connected: true, when: much)?.running?.facts == facts)
+        let owner = hubCrewPage(state: state(runBy: "dev-jo", endsAt: nil), access: ownerAccess(endsAt: nil),
+                                me: "dev-phone", role: "admin", when: much)
+        #expect(owner.stream?.line == "Jo's laptop runs it.")
+        #expect(owner.stream?.detail == nil)
         // An end the phone can't read counts as passed.
         let garbled = state(runBy: "dev-phone", endsAt: "soon")
         #expect(!garbled.runsStream("dev-phone", now: when().now))
@@ -443,6 +451,75 @@ struct HubCrewSuite {
         let noon = at("2026-11-17T12:00:00Z")
         #expect(hubHandoverWatch(renewed, me: "dev-phone", role: "helper", now: noon.now) == .ranOut)
         #expect(!hubCrewPage(state: renewed, access: nil, me: "dev-phone", role: "helper", when: noon).manages)
+    }
+
+    private func ownerAccess(endsAt: String?) -> HubAccess {
+        let phone = grant("dev-phone", name: "iPhone", role: "admin", allows: admin, can: [], person: "per-1")
+        var jo = grant("dev-jo", name: "Jo's laptop", role: "helper", allows: member + ["invite.open"],
+                       can: ["change", "end", "take_back"])
+        jo.runsStream = true
+        var access = list([phone, jo], people: [HubPerson(id: "per-1", name: "Alex", you: true)])
+        access.stream.runBy = HubRunBy(kind: "handed",
+                                       device: HubPersonRef(id: "dev-jo", name: "Jo's laptop"),
+                                       endsAt: endsAt)
+        return access
+    }
+
+    @Test
+    func theNewestStateDecidesWhetherTheHandoverIsStillOnWhereverItIsShown() throws {
+        // The list was read when the stream had stopped: the handover would
+        // end at 10:15. At 10:14:59 the stream went live again, and the
+        // newest state moved the end to 19 Nov. The list is read again only
+        // a moment later.
+        let clock = at("2026-11-17T10:30:00Z")
+        let older = "2026-11-17T10:15:00Z"
+        let newer = state(runBy: "dev-phone", endsAt: "2026-11-19T10:20:00Z")
+        let page = try #require(hubAccessPage(handedAccess(endsAt: older), state: newer, connected: true,
+                                              when: clock))
+        #expect(page.running?.giveBack != nil)
+        #expect(page.running?.line == "Jo runs it, on Jo's iPhone.")
+        let crew = hubCrewPage(state: newer, access: handedAccess(endsAt: older), me: "dev-phone", role: "helper",
+                               when: clock)
+        #expect(crew.manages)
+        #expect(crew.groups.flatMap(\.rows).first { $0.id == "dev-phone" }?.tag == HubWords.Crew.runs)
+        let owner = hubCrewPage(state: state(runBy: "dev-jo", endsAt: "2026-11-19T10:20:00Z"),
+                                access: ownerAccess(endsAt: older), me: "dev-phone", role: "admin", when: clock)
+        #expect(owner.stream?.takeBack?.label == HubWords.Access.takeBack)
+        #expect(owner.groups.flatMap(\.rows).first { $0.id == "dev-jo" }?.tag == HubWords.Crew.runs)
+        // And the other way: the stream stopped and the newest state ends the
+        // handover at 10:15, while the list still holds the later end.
+        let ended = state(runBy: "dev-phone", endsAt: older)
+        let stale = try #require(hubAccessPage(handedAccess(endsAt: "2026-11-19T10:20:00Z"), state: ended,
+                                               connected: true, when: clock))
+        #expect(stale.running?.giveBack == nil)
+        #expect(stale.running?.line == HubWords.Access.runOwners)
+        let staleCrew = hubCrewPage(state: ended, access: handedAccess(endsAt: "2026-11-19T10:20:00Z"),
+                                    me: "dev-phone", role: "helper", when: clock)
+        #expect(!staleCrew.manages)
+        let staleOwner = hubCrewPage(state: state(runBy: "dev-jo", endsAt: older),
+                                     access: ownerAccess(endsAt: "2026-11-19T10:20:00Z"),
+                                     me: "dev-phone", role: "admin", when: clock)
+        #expect(staleOwner.stream == nil)
+        #expect(!staleOwner.groups.flatMap(\.rows).contains { $0.tag == HubWords.Crew.runs })
+        // A state that names nobody ends it everywhere, whatever the list says.
+        let nobody = state()
+        #expect(hubAccessPage(handedAccess(endsAt: nil), state: nobody, connected: true, when: clock)?.running?.line
+            == HubWords.Access.runOwners)
+        #expect(hubCrewPage(state: nobody, access: ownerAccess(endsAt: nil), me: "dev-phone", role: "admin",
+                            when: clock).stream == nil)
+    }
+
+    @Test
+    func anEndFarAheadWakesThePanelADayLaterAtMost() throws {
+        let now = when().now
+        let far = try #require(HubWhen.date("2700-01-01T00:00:00Z"))
+        #expect(hubHandoverWakeDelay(far, now: now) == 86_400_000_000_000)
+        #expect(hubHandoverWakeDelay(.distantFuture, now: now) == 86_400_000_000_000)
+        #expect(hubHandoverWakeDelay(now.addingTimeInterval(7 * 86400), now: now) == 86_400_000_000_000)
+        #expect(hubHandoverWakeDelay(now.addingTimeInterval(600), now: now) == 600_200_000_000)
+        #expect(hubHandoverWakeDelay(now.addingTimeInterval(-600), now: now) == 200_000_000)
+        let distant = state(runBy: "dev-phone", endsAt: "2700-01-01T00:00:00Z")
+        #expect(hubHandoverWatch(distant, me: "dev-phone", role: "helper", now: now) == .endsAt(far))
     }
 
     @Test

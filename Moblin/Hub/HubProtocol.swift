@@ -113,6 +113,14 @@ func hubHandoverWatch(_ state: HubState?, me: String?, role: String?, now: Date)
     return run.endsAt.flatMap { HubWhen.date($0) }.map { .endsAt($0) } ?? .none
 }
 
+// How long the panel sleeps before it checks a handover's end again, in
+// nanoseconds: just past the end, and at most a day, so an end however far
+// ahead is still a sleep the phone can take.
+func hubHandoverWakeDelay(_ end: Date, now: Date) -> UInt64 {
+    let seconds = min(max(end.timeIntervalSince(now), 0) + 0.2, 86400)
+    return UInt64(seconds * 1_000_000_000)
+}
+
 struct HubSession: Codable, Equatable {
     var id: String
     // ready | live | ended

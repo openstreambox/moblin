@@ -1020,7 +1020,10 @@ private func count(_ number: Int, _ one: String, _ many: String) -> String {
     "\(number) \(number == 1 ? one : many)"
 }
 
+// state is the newest state the hub sent. It decides whether the handover
+// the list names is still on; the list itself can be one request older.
 func hubAccessPage(_ access: HubAccess?,
+                   state: HubState? = nil,
                    connected: Bool,
                    older: [HubTrailEntry] = [],
                    more: Bool? = nil,
@@ -1030,10 +1033,19 @@ func hubAccessPage(_ access: HubAccess?,
         return nil
     }
     let people = access.people ?? []
-    // A handover past its end is over here, even before the hub says so.
-    let expired = access.stream.runBy.map { $0.kind == "handed" && !hubHandoverOn($0.endsAt, now: when.now) }
-        ?? false
-    let guest = access.asWho?.runsStream == true && access.asWho?.role != "admin" && !expired
+    // Whether a device runs the stream now: from the newest state, and a
+    // handover past its end is over here even before the hub says so.
+    func runsNow(_ device: String?) -> Bool {
+        if let state {
+            return state.runsStream(device, now: when.now)
+        }
+        guard let run = access.stream.runBy, run.kind == "handed", run.device?.id == device else {
+            return false
+        }
+        return hubHandoverOn(run.endsAt, now: when.now)
+    }
+    let me = access.asWho?.id
+    let guest = access.asWho?.role != "admin" && runsNow(me)
     let shared = people.count > 1 || guest
     func rows(_ test: (HubGrant) -> Bool) -> [HubAccessRow] {
         access.grants.filter(test).map { hubAccessRow($0, when: when, shared: shared) }
@@ -1074,19 +1086,21 @@ func hubAccessPage(_ access: HubAccess?,
         HubAccessSection(id: "invites", title: HubWords.Access.invites, rows: invites),
     ]).filter { !$0.rows.isEmpty }
     var running: HubAccessRunning?
-    if let run = access.stream.runBy, run.kind == "handed", !expired {
+    if let run = access.stream.runBy, run.kind == "handed", runsNow(run.device?.id) {
         let device = run.device?.name ?? ""
         let gave = gaveList(run.gave)
         var facts = [HubWords.Access.runBy(run.givenBy?.name?.isEmpty == false ? run.givenBy!.name!
                 : HubWords.Access.anOwnerDevice,
-            when.text(run.givenAt)),
-        HubWords.Access.runEnds(when.text(run.endsAt))]
+            when.text(run.givenAt))]
+        if let endsAt = run.endsAt {
+            facts.append(HubWords.Access.runEnds(when.text(endsAt)))
+        }
         if !gave.isEmpty {
             facts.append(HubWords.Access.runGave(gave))
         }
         let name = run.forName?.isEmpty == false ? run.forName! : device
         let canTakeBack = access.grants.first { $0.id == run.device?.id }?.can.contains("take_back") == true
-        let mine = access.asWho?.runsStream == true && access.asWho?.id == run.device?.id
+        let mine = guest && me == run.device?.id
         running = HubAccessRunning(
             line: run.forName?.isEmpty == false ? HubWords.Access.runHanded(run.forName!, device)
                 : HubWords.Access.runHandedDevice(device),

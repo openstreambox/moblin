@@ -71,6 +71,7 @@ extension Model {
 
     func hubAccessPageNow() -> HubAccessPage? {
         hubAccessPage(hub.access,
+                      state: hub.pending ? nil : hub.state,
                       connected: hub.connected,
                       older: hub.accessOlder,
                       more: hub.accessMore,
@@ -193,9 +194,9 @@ extension Model {
         case .none:
             break
         case let .endsAt(end):
-            let delay = max(end.timeIntervalSince(now), 0) + 0.2
+            let delay = hubHandoverWakeDelay(end, now: now)
             hub.handoverTimer = Task { @MainActor in
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                try? await Task.sleep(nanoseconds: delay)
                 guard !Task.isCancelled else {
                     return
                 }
