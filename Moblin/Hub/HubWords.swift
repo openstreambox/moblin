@@ -156,7 +156,7 @@ enum HubWords {
             String(localized: "Make a link and send it. It works once, and they wait for your Allow.")
         static let handStream = String(localized: "Let them run this stream")
         static let handStreamHint =
-            String(localized: "They can go live, move, end, hide and show, and let helpers and mods in for this stream only. It ends with the stream.")
+            String(localized: "They can go live, move, end, hide and show, and let helpers and mods in for this stream only. It ends soon after the stream stops, or when you take it back.")
 
         static func helperReady(_ name: String) -> String {
             name.isEmpty ? String(localized: "Send this link to your helper.")
@@ -246,9 +246,11 @@ enum HubWords {
             case "returned":
                 String(localized: "You gave the stream back.")
             case "stream":
-                String(localized: "The stream ended, and with it your handover.")
+                String(localized: "The stream stayed stopped, so your handover ended. What you let in has ended too.")
             case "time":
-                String(localized: "Your handover ran out at its set time.")
+                String(localized: "Your handover ran out at the end time an owner set.")
+            case "unanswered":
+                String(localized: "No owner kept your handover, so it ended. What you let in has ended too.")
             case "handed_on":
                 String(localized: "The stream was handed to someone else.")
             case "taken_back" where role == "helper":
@@ -263,7 +265,7 @@ enum HubWords {
         static let giveBack = String(localized: "Give the stream back")
         static let giveBackConfirm =
             String(localized: "Give this stream back to the owners? What you let in loses access at once. The stream keeps running.")
-        static let youRun = String(localized: "You run this stream until it ends.")
+        static let youRun = String(localized: "You run this stream.")
 
         static let thisStream = String(localized: "This stream")
 
@@ -276,7 +278,21 @@ enum HubWords {
         }
 
         static func streamUntil(_ when: String) -> String {
-            String(localized: "Until the stream ends, or \(when).")
+            String(localized: "Runs while the stream is live, and ends \(when) if nothing changes.")
+        }
+
+        // Near its end, the phone that runs the stream reads why and by when
+        // (crew.owner.ending). why is the hub's: stream, time or unanswered.
+        static func ending(_ why: String?, live: Bool, _ when: String) -> String {
+            switch why {
+            case "stream":
+                String(localized: "The stream stopped. Go live again by \(when) to keep running it.")
+            case "time":
+                String(localized: "Your handover ends \(when), the end time an owner set.")
+            default:
+                live ? String(localized: "Your handover ends \(when) unless an owner keeps it.")
+                    : String(localized: "Your handover ends \(when) unless you go live or an owner keeps it.")
+            }
         }
 
         static func refused(_ code: String) -> String? {
@@ -412,7 +428,7 @@ enum HubWords {
 
         static let noteHandsStream = String(localized: "Allowing hands this stream to them.")
         static let noteRuns =
-            String(localized: "Runs this stream. That ends with the stream, and so does everything they let in.")
+            String(localized: "Runs this stream. That ends soon after the stream stops, and so does everything they let in.")
         static let noteBySession =
             String(localized: "Let in by the stream's session owner. Ends when they stop running it.")
 
@@ -445,8 +461,22 @@ enum HubWords {
             String(localized: "Handed over by \(by) · \(when)")
         }
 
-        static func runEnds(_ when: String) -> String {
-            String(localized: "Ends when the stream ends, or \(when)")
+        // When a handover ends if nothing changes, by why it would end:
+        // the owner's end time, the stream that stopped, or no answer.
+        static func runEnds(_ why: String?, live: Bool, _ when: String) -> String {
+            switch why {
+            case "time":
+                String(localized: "Ends \(when), the end time set for it.")
+            case "stream":
+                String(localized: "The stream stopped. Ends \(when) unless it goes live again.")
+            default:
+                live ? String(localized: "Runs while the stream is live. Without an owner's answer it ends \(when).")
+                    : String(localized: "The stream isn't live. Ends \(when) unless it goes live or an owner keeps it.")
+            }
+        }
+
+        static func runEndTime(_ when: String) -> String {
+            String(localized: "End time: \(when)")
         }
 
         static func runGave(_ list: String) -> String {
@@ -464,7 +494,7 @@ enum HubWords {
         }
 
         static func confirmHandOver(_ name: String) -> String {
-            String(localized: "Hand this stream to \(name)? They can go live, move, end, hide and show, and let helpers and mods in for this stream. It ends with the stream, or when you take it back.")
+            String(localized: "Hand this stream to \(name)? They can go live, move, end, hide and show, and let helpers and mods in for this stream. It ends soon after the stream stops, or when you take it back.")
         }
 
         static func confirmTakeBack(_ name: String) -> String {
@@ -583,6 +613,7 @@ enum HubWords {
         static let changeHalfDay = String(localized: "In 12 hours")
         static let changeDay = String(localized: "In 24 hours")
         static let changeNever = String(localized: "Until you remove it")
+        static let setEndTime = String(localized: "Set an end time")
 
         static let failed = String(localized: "That didn't reach the hub. Try again.")
         static let emptyTrail = String(localized: "Nothing yet.")
@@ -594,6 +625,51 @@ enum HubWords {
 
         static let unknownTitle = String(localized: "Can't say right now")
         static let unknownLine = String(localized: "Lost the connection to your hub. Reconnecting…")
+
+        // The hub asks owner devices whether a handover goes on. Ignoring
+        // it is safe: the stream is never cut by it.
+        enum Ask {
+            static func title(_ who: String) -> String {
+                String(localized: "\(who) still runs your stream")
+            }
+
+            static func titleDevice(_ device: String) -> String {
+                String(localized: "\(device) still runs your stream")
+            }
+
+            static func since(_ when: String) -> String {
+                String(localized: "Handed over \(when).")
+            }
+
+            static func live(_ when: String) -> String {
+                String(localized: "The stream is live. If nobody answers, it keeps running, and the handover ends \(when) at the latest.")
+            }
+
+            static func idle(_ when: String) -> String {
+                String(localized: "The stream isn't live. If nobody answers, the handover ends \(when).")
+            }
+
+            static let keep = String(localized: "Keep")
+            static let endTime = String(localized: "Set an end time")
+            static let takeBack = String(localized: "Take back now")
+            static let kept = String(localized: "Kept. You'll be asked again later.")
+
+            static func endSet(_ when: String) -> String {
+                String(localized: "Ends \(when).")
+            }
+        }
+
+        enum EndTime {
+            static let title = String(localized: "When should the handover end?")
+            static let line =
+                String(localized: "It ends then at the latest, also while the stream is live. What they let in ends with it.")
+            static let hour = String(localized: "In 1 hour")
+            static let threeHours = String(localized: "In 3 hours")
+            static let halfDay = String(localized: "In 12 hours")
+            static let day = String(localized: "In 24 hours")
+            static let week = String(localized: "In 7 days")
+            static let none = String(localized: "No end time")
+        }
     }
 
     static func duration(_ duration: HubLinkDuration) -> String {

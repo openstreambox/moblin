@@ -46,8 +46,14 @@ struct HubRunBy: Codable, Equatable {
     var person: HubPersonRef?
     var givenBy: HubPersonRef?
     var givenAt: String?
+    // When the handover ends if nothing changes, and why (as in the state).
     var endsAt: String?
     var gave: HubGave?
+    var endsWhy: String?
+    var endTime: String?
+    var stoppedAt: String?
+    var askedAt: String?
+    var answeredAt: String?
 
     enum CodingKeys: String, CodingKey {
         case kind
@@ -58,6 +64,11 @@ struct HubRunBy: Codable, Equatable {
         case givenAt = "given_at"
         case endsAt = "ends_at"
         case gave
+        case endsWhy = "ends_why"
+        case endTime = "end_time"
+        case stoppedAt = "stopped_at"
+        case askedAt = "asked_at"
+        case answeredAt = "answered_at"
     }
 }
 
@@ -229,6 +240,8 @@ struct HubTrailDetail: Codable, Equatable {
     var was: String?
     var name: String?
     var lines: Int?
+    // stream.kept: the end time an owner set with the answer.
+    var endTime: String?
 
     enum CodingKeys: String, CodingKey {
         case via
@@ -247,6 +260,7 @@ struct HubTrailDetail: Codable, Equatable {
         case was
         case name
         case lines
+        case endTime = "end_time"
     }
 
     init(via: String? = nil,
@@ -285,6 +299,7 @@ struct HubTrailDetail: Codable, Equatable {
         was = try? container.decodeIfPresent(String.self, forKey: .was)
         name = try? container.decodeIfPresent(String.self, forKey: .name)
         lines = try? container.decodeIfPresent(Int.self, forKey: .lines)
+        endTime = try? container.decodeIfPresent(String.self, forKey: .endTime)
     }
 }
 
@@ -903,6 +918,11 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
         return detail.renewed == true
             ? String(localized: "\(by) renewed the handover of the stream to \(to)")
             : String(localized: "\(by) handed the stream to \(to)")
+    case "stream.kept":
+        if let end = detail.endTime {
+            return String(localized: "\(by) kept \(name)'s handover, until \(when.text(end))")
+        }
+        return String(localized: "\(by) kept \(name)'s handover")
     case "stream.taken_back":
         switch detail.why {
         case "taken_back":
@@ -910,9 +930,11 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
         case "returned":
             return String(localized: "\(name) gave the stream back\(lost)")
         case "stream":
-            return String(localized: "\(name)'s handover ended with the stream\(lost)")
+            return String(localized: "\(name)'s handover ended: the stream stayed stopped\(lost)")
         case "time":
-            return String(localized: "\(name)'s handover ended at its set time\(lost)")
+            return String(localized: "\(name)'s handover ended at its end time\(lost)")
+        case "unanswered":
+            return String(localized: "\(name)'s handover ended: no owner kept it\(lost)")
         case "removed":
             return String(localized: "\(name)'s handover ended when the device was removed\(lost)")
         case "restart":
@@ -952,6 +974,135 @@ struct HubAccessRunning: Equatable {
     let device: String?
     let takeBack: HubAccessRow.End?
     var giveBack: HubAccessRow.End?
+    // The hub's open question to owner devices, and the end times an owner
+    // may set (nil when this device may not answer).
+    var ask: HubHandoverAsk?
+    var endTimes: [HubEndTime]?
+}
+
+// The hub asks owner devices whether a handover goes on (stream.ask, and
+// asked_at while nobody answered). Keep, Set an end time and Take back now
+// answer it; ignoring it is safe, the handover then ends on its own.
+struct HubHandoverAsk: Equatable {
+    let title: String
+    let since: String?
+    let line: String
+    // Keep is the view's filled button unless an Allow is on the same view.
+    let filled: Bool
+}
+
+// When the handover should end, from now: one choice sends stream.keep with
+// that end time. The hub takes one minute to seven days ahead.
+enum HubEndTime: String, CaseIterable, Identifiable {
+    case hour
+    case threeHours
+    case halfDay
+    case day
+    case week
+    case noEnd
+
+    var id: String {
+        rawValue
+    }
+
+    var label: String {
+        switch self {
+        case .hour:
+            HubWords.Access.EndTime.hour
+        case .threeHours:
+            HubWords.Access.EndTime.threeHours
+        case .halfDay:
+            HubWords.Access.EndTime.halfDay
+        case .day:
+            HubWords.Access.EndTime.day
+        case .week:
+            HubWords.Access.EndTime.week
+        case .noEnd:
+            HubWords.Access.EndTime.none
+        }
+    }
+
+    var seconds: TimeInterval? {
+        switch self {
+        case .hour:
+            3600
+        case .threeHours:
+            3 * 3600
+        case .halfDay:
+            12 * 3600
+        case .day:
+            24 * 3600
+        case .week:
+            7 * 24 * 3600
+        case .noEnd:
+            nil
+        }
+    }
+
+    // What the choice asks the hub for (stream.keep).
+    func request(now: Date) -> [String: Any] {
+        guard let seconds else {
+            return ["end_time": NSNull()]
+        }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return ["end_time": formatter.string(from: now.addingTimeInterval(seconds))]
+    }
+
+    // The five, and No end time while one is set.
+    static func choices(endTime: String?) -> [HubEndTime] {
+        allCases.filter { $0 != .noEnd || endTime != nil }
+    }
+}
+
+// The times of a handover the list names, from the newest state when that
+// names the same device: an answer or Go live moves them before the list
+// is read again.
+func hubHandoverTimes(_ run: HubRunBy, state: HubState?) -> HubRunBy {
+    guard let state else {
+        return run
+    }
+    var times = run
+    if let newest = state.session.runBy, newest.device == run.device?.id {
+        times.endsAt = newest.endsAt
+        times.endsWhy = newest.endsWhy
+        times.endTime = newest.endTime
+        times.stoppedAt = newest.stoppedAt
+        times.askedAt = newest.askedAt
+    }
+    return times
+}
+
+// When a handover ends, as facts: by why it would end, and the owner's end
+// time when that isn't already the reason.
+func hubHandoverEnds(_ run: HubRunBy, live: Bool, when: HubWhen) -> [String] {
+    var facts: [String] = []
+    if let endsAt = run.endsAt {
+        facts.append(HubWords.Access.runEnds(run.endsWhy, live: live, when.text(endsAt)))
+    }
+    if let endTime = run.endTime, run.endsWhy != "time" {
+        facts.append(HubWords.Access.runEndTime(when.text(endTime)))
+    }
+    return facts
+}
+
+// The open ask, for an owner device that may answer it.
+func hubHandoverAsk(_ run: HubRunBy,
+                    live: Bool,
+                    answers: Bool,
+                    filled: Bool,
+                    when: HubWhen) -> HubHandoverAsk?
+{
+    guard answers, run.askedAt != nil else {
+        return nil
+    }
+    let device = run.device?.name ?? ""
+    return HubHandoverAsk(title: run.forName?.isEmpty == false ? HubWords.Access.Ask.title(run.forName!)
+                              : HubWords.Access.Ask.titleDevice(device),
+                          since: run.givenAt.map { HubWords.Access.Ask.since(when.text($0)) },
+                          line: live ? HubWords.Access.Ask.live(when.text(run.endsAt))
+                              : HubWords.Access.Ask.idle(when.text(run.endsAt)),
+                          filled: filled)
 }
 
 struct HubAccessLinkRow: Equatable, Identifiable {
@@ -1086,30 +1237,36 @@ func hubAccessPage(_ access: HubAccess?,
         HubAccessSection(id: "invites", title: HubWords.Access.invites, rows: invites),
     ]).filter { !$0.rows.isEmpty }
     var running: HubAccessRunning?
-    if let run = access.stream.runBy, run.kind == "handed", runsNow(run.device?.id) {
+    if let listed = access.stream.runBy, listed.kind == "handed", runsNow(listed.device?.id) {
+        let run = hubHandoverTimes(listed, state: state)
+        let live = state.map { $0.session.live == "live" } ?? (access.stream.live == "live")
+        let answers = access.can?.contains("keep_stream") == true
         let device = run.device?.name ?? ""
         let gave = gaveList(run.gave)
         var facts = [HubWords.Access.runBy(run.givenBy?.name?.isEmpty == false ? run.givenBy!.name!
                 : HubWords.Access.anOwnerDevice,
             when.text(run.givenAt))]
-        if let endsAt = run.endsAt {
-            facts.append(HubWords.Access.runEnds(when.text(endsAt)))
-        }
+        facts += hubHandoverEnds(run, live: live, when: when)
         if !gave.isEmpty {
             facts.append(HubWords.Access.runGave(gave))
         }
         let name = run.forName?.isEmpty == false ? run.forName! : device
         let canTakeBack = access.grants.first { $0.id == run.device?.id }?.can.contains("take_back") == true
         let mine = guest && me == run.device?.id
+        let ask = hubHandoverAsk(run, live: live, answers: answers, filled: !waiting.contains { $0.allow },
+                                 when: when)
         running = HubAccessRunning(
             line: run.forName?.isEmpty == false ? HubWords.Access.runHanded(run.forName!, device)
                 : HubWords.Access.runHandedDevice(device),
             facts: facts,
             device: run.device?.id,
-            takeBack: canTakeBack && !mine ? .init(label: HubWords.Access.takeBack,
-                                                   confirm: gave.isEmpty ? HubWords.Access.confirmTakeBack(name)
-                                                       : HubWords.Access.confirmTakeBackGave(name, gave)) : nil,
-            giveBack: mine ? hubGiveBackConfirm() : nil
+            takeBack: canTakeBack && !mine
+                ? .init(label: ask == nil ? HubWords.Access.takeBack : HubWords.Access.Ask.takeBack,
+                        confirm: gave.isEmpty ? HubWords.Access.confirmTakeBack(name)
+                            : HubWords.Access.confirmTakeBackGave(name, gave)) : nil,
+            giveBack: mine ? hubGiveBackConfirm() : nil,
+            ask: ask,
+            endTimes: answers && !mine ? HubEndTime.choices(endTime: run.endTime) : nil
         )
     } else if access.people != nil {
         let line: String

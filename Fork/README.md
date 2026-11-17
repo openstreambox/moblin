@@ -85,12 +85,18 @@ list and its wording in `Moblin/Hub/HubAccess.swift`.
   "Make co-owner", and another owner's own device only by that owner. An owner
   sets their own name here too.
 - **A handed-over stream:** an owner hands one stream to a helper, by a link
-  or on their row, and sees who runs it, until when and what they let in,
-  with Take back. The phone that was handed a stream says so, says what it may
-  do and until when, adds helpers and mods for that stream only, and gives the
-  stream back. When the handover has a set end, the phone drops those
-  controls at that time by its own clock, even if the hub's next state comes
-  late; its own role's controls stay.
+  or on their row, and sees who runs it, until when and why, and what they let
+  in, with Set an end time (1 hour to 7 days, or none) and Take back. A
+  handover runs while the stream is live; when the hub asks the owner devices
+  whether it goes on, the question shows on the panel, in Crew and in Who has
+  access with Keep, Set an end time and Take back now, and as a quiet
+  notification. Ignoring it is safe. The phone that was handed a stream says
+  so, says what it may do and until when, adds helpers and mods for that
+  stream only, and gives the stream back. After End stream it says by when to
+  go live again to keep running it. The hub's newest state decides whether the
+  handover is still on; past its end the phone drops those controls by its own
+  clock, even if the hub's next state comes late, and its own role's controls
+  stay.
 - **Who has access:** every device, helper, mod and unused invite with its
   role, what it may do in a plain sentence, how it joined, who gave it and when
   it ends; Allow, Remove or End now with one confirm, Change when it ends, and

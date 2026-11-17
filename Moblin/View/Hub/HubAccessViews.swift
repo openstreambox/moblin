@@ -380,17 +380,17 @@ private struct HubAccessRunningView: View {
                 }
             }
             .accessibilityElement(children: .combine)
-            if let takeBack = running.takeBack, let device = running.device {
+            if running.giveBack == nil, let device = running.device,
+               running.takeBack != nil || running.ask != nil || running.endTimes != nil
+            {
                 // Filed under its own id, apart from the same device's row.
-                let grant = "\(device)#stream"
-                Button(takeBack.label) {
-                    hub.accessFailed = nil
-                    hub.accessConfirming = HubAccessConfirm(grant: grant, action: .takeBack)
-                }
-                .buttonStyle(HubRowButtonStyle())
-                .disabled(!hub.connected || hub.accessBusy.contains(grant))
-                .padding(.top, 4)
-                HubAccessFailureView(hub: hub, grant: grant)
+                HubHandedStreamControls(model: model,
+                                        hub: hub,
+                                        device: device,
+                                        ask: running.ask,
+                                        endTimes: running.endTimes,
+                                        takeBack: running.takeBack)
+                    .padding(.top, 4)
             }
             if let giveBack = running.giveBack {
                 Button(giveBack.label) {
@@ -404,11 +404,7 @@ private struct HubAccessRunningView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .hubAccessConfirm(model: model,
-                          hub: hub,
-                          grant: running.giveBack != nil ? hubGiveBackGrant : "\(running.device ?? "")#stream",
-                          takeBack: running.takeBack,
-                          giveBack: running.giveBack)
+        .hubAccessConfirm(model: model, hub: hub, grant: hubGiveBackGrant, giveBack: running.giveBack)
         .padding(.vertical, 4)
         .listRowBackground(HubLook.surface)
     }

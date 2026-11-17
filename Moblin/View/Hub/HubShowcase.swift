@@ -50,7 +50,8 @@ private func iso(_ minutes: Double) -> String {
 }
 
 // The owner's list as the hub sends it (access.get), with times around now.
-// variant: plain | coowner | handed
+// variant: plain | coowner | handed | asked (handed, and the hub asks
+// whether it goes on)
 private func showcaseAccess(variant: String = "plain", live: Bool = true, hidden: Bool = false) -> HubAccess? {
     let admin = "[\"state.get\",\"stream.go_live\",\"stream.move\",\"stream.end\",\"privacy.hide\","
         + "\"privacy.show\",\"invite.open\",\"device.remove\",\"hub.recovery.get\"]"
@@ -59,7 +60,8 @@ private func showcaseAccess(variant: String = "plain", live: Bool = true, hidden
     let session = "[\"state.get\",\"stream.go_live\",\"stream.move\",\"stream.end\",\"privacy.hide\","
         + "\"privacy.show\",\"invite.open\"]"
     let mod = "[\"mod.state\",\"privacy.hide\"]"
-    let handed = variant == "handed"
+    let asked = variant == "asked"
+    let handed = variant == "handed" || asked
     let coowner = variant == "coowner" || variant == "theirs"
     var grants = [
         """
@@ -165,10 +167,15 @@ private func showcaseAccess(variant: String = "plain", live: Bool = true, hidden
     let people = coowner
         ? "[{\"id\":\"per-1\",\"name\":\"Alex\",\"you\":true},{\"id\":\"per-2\",\"name\":\"Kim\",\"you\":false}]"
         : "[{\"id\":\"per-1\",\"name\":\"\",\"you\":true}]"
+    // A live handover ends 48 hours after the last owner's answer; an ask
+    // comes after 2 hours without one.
     let runBy = handed
         ? "{\"kind\":\"handed\",\"device\":{\"id\":\"dev-kim\",\"name\":\"Kim's laptop\"},\"for\":\"Kim\","
-        + "\"given_by\":{\"id\":\"dev-phone\",\"name\":\"iPhone\"},\"given_at\":\"\(iso(-3))\","
-        + "\"ends_at\":\"\(iso(1437))\",\"gave\":{\"helpers\":0,\"mods\":1,\"invites\":0}}"
+        + "\"given_by\":{\"id\":\"dev-phone\",\"name\":\"iPhone\"},"
+        + "\"given_at\":\"\(iso(asked ? -125 : -3))\",\"ends_at\":\"\(iso(asked ? 2755 : 2877))\","
+        + "\"ends_why\":\"unanswered\",\"end_time\":null,\"stopped_at\":null,"
+        + "\"asked_at\":\(asked ? "\"\(iso(-5))\"" : "null"),\"answered_at\":null,"
+        + "\"gave\":{\"helpers\":0,\"mods\":1,\"invites\":0}}"
         : "null"
     let links = """
     [{"id":"own-1","device":{"id":"dev-desk","name":"Mac"},"state":"active","online":true,
@@ -182,7 +189,7 @@ private func showcaseAccess(variant: String = "plain", live: Bool = true, hidden
     {"hub":"Studio hub","as":{"id":"dev-phone","name":"iPhone","role":"admin","runs_stream":false,
     "person":{"id":"per-1","name":"\(coowner ? "Alex" : "")"}},
     "stream":{"session":"showcase","live":"\(live ? "live" : "ready")","hidden":\(hidden),"run_by":\(runBy)},
-    "people":\(people),"can":["clear_trail"],"owner_links":\(links),
+    "people":\(people),"can":["clear_trail"\(handed ? ",\"keep_stream\"" : "")],"owner_links":\(links),
     "grants":[\(grants.joined(separator: ","))],"trail":[\(trail.joined(separator: ","))],"trail_more":true}
     """
     return try? JSONDecoder().decode(HubAccess.self, from: Data(json.utf8))
@@ -301,6 +308,22 @@ extension Model {
             variant = "handed"
             screens = [.crew]
             hub.accessConfirming = HubAccessConfirm(grant: "dev-kim#stream", action: .takeBack)
+        case "owner-ask":
+            variant = "asked"
+        case "crew-ask":
+            variant = "asked"
+            screens = [.crew]
+        case "crew-end-time":
+            variant = "handed"
+            screens = [.crew]
+            hub.choosingEndTime = hubStreamGrant("dev-kim")
+        case "crew-kept":
+            variant = "handed"
+            screens = [.crew]
+            hub.handoverAnswer = HubHandoverAnswer(grant: hubStreamGrant("dev-kim"), line: HubWords.Access.Ask.kept)
+        case "access-ask":
+            variant = "asked"
+            screens = [.access]
         case "owner-theirs":
             variant = "theirs"
         case "crew-theirs":
@@ -430,6 +453,20 @@ extension Model {
                 hub.access = showcaseAccess(variant: variant, hidden: state.session.privacy.hidden)
             }
         }
+        // The state names the handover the list names; the screens take
+        // whether it is on from the state.
+        if let run = hub.access?.stream.runBy, run.kind == "handed", let device = run.device?.id {
+            state.session.runBy = HubSessionRunBy(device: device,
+                                                  since: run.givenAt,
+                                                  endsAt: run.endsAt,
+                                                  endsWhy: run.endsWhy,
+                                                  endTime: run.endTime,
+                                                  askedAt: run.askedAt)
+            if let index = state.devices.firstIndex(where: { $0.id == device }) {
+                state.devices[index].runsStream = true
+            }
+            hub.state = state
+        }
         if showingPanel != .rig {
             toggleShowingPanel(type: .rig, panel: .rig)
         }
@@ -445,12 +482,29 @@ extension Model {
                                      allowed: true, online: true, feed: true, runsStream: true)
         state.devices.append(HubDevice(id: "dev-robin", name: "Robin's laptop", kind: "helper", role: "helper",
                                        allowed: true, online: true, feed: false))
-        state.session.runBy = HubSessionRunBy(device: showcaseMe, since: iso(-25), endsAt: iso(1415))
+        state.session.runBy = HubSessionRunBy(device: showcaseMe, since: iso(-25), endsAt: iso(2855),
+                                              endsWhy: "unanswered")
         hub.showcaseSending = true
         var screens: [HubScreen] = []
         switch name {
         case "session-panel":
             break
+        case "session-grace":
+            // End stream was pressed 3 minutes ago: the grace period runs.
+            state.session.live = "ended"
+            state.session.output = HubOutput(state: "off")
+            state.session.program = nil
+            state.session.runBy = HubSessionRunBy(device: showcaseMe, since: iso(-25), endsAt: iso(12),
+                                                  endsWhy: "stream", stoppedAt: iso(-3))
+            hub.ending = HubEnding(endsAt: state.session.runBy!.endsAt!, why: "stream", live: false)
+        case "session-ending":
+            // Live, and no owner answered for nearly 48 hours.
+            state.session.runBy = HubSessionRunBy(device: showcaseMe, since: iso(-2870), endsAt: iso(10),
+                                                  endsWhy: "unanswered", askedAt: iso(-60))
+        case "session-ended-unanswered":
+            state.devices[0].runsStream = false
+            state.session.runBy = nil
+            hub.said = HubWords.Crew.takenBack("unanswered", role: "helper")
         case "session-handed":
             hub.said = HubWords.Crew.handed("Mac")
         case "session-hidden":
@@ -475,7 +529,8 @@ extension Model {
             return false
         }
         hub.state = state
-        hub.access = name == "session-taken-back" ? nil : showcaseSessionAccess()
+        hub.access = name == "session-taken-back" || name == "session-ended-unanswered" ? nil
+            : showcaseSessionAccess()
         if showingPanel != .rig {
             toggleShowingPanel(type: .rig, panel: .rig)
         }
@@ -518,6 +573,9 @@ extension Model {
         hub.showcaseOwnName = nil
         hub.sessionTold = nil
         hub.said = nil
+        hub.ending = nil
+        hub.choosingEndTime = nil
+        hub.handoverAnswer = nil
         hub.showcaseSection = nil
         hub.path = []
         database.hub = SettingsHub()
