@@ -43,6 +43,8 @@ enum ShowingPanel {
     case streamingButtonSettings
     case live
     case macros
+    case backpack
+    case rig
 
     func buttonsBackgroundColor() -> Color {
         if self == .chat {
@@ -227,6 +229,7 @@ class Bonding: ObservableObject {
 class Show: ObservableObject {
     @Published var cameraPreview = false
     @Published var chatPhone = false
+    @Published var companion = false
 }
 
 @MainActor
@@ -505,6 +508,8 @@ final class Model: NSObject, ObservableObject {
     @Published var showTwitchAuth = false
     @Published var showModerationAuth = false
     @Published var presentingModeration = false
+    @Published var presentingDashboardJoin = false
+    @Published var presentingHubJoin = false
     @Published var presentingPredefinedMessages: Bool = false
     @Published var presentingSceneEditor: Bool = false
     @Published var presentingSettingsImportConfirmation = false
@@ -588,6 +593,9 @@ final class Model: NSObject, ObservableObject {
     let twitchPoll = TwitchPoll()
     let twitchPrediction = TwitchPrediction()
     let moblink = Moblink()
+    let backpack = BackpackProvider()
+    let dashboard = DashboardProvider()
+    let hub = HubProvider()
     let ingests = Ingests()
     let videoSources = VideoSources()
     let bitrate = Bitrate()
@@ -965,6 +973,8 @@ final class Model: NSObject, ObservableObject {
             .autoSceneSwitcher,
             .live,
             .macros,
+            .backpack,
+            .rig,
         ].contains(type)
     }
 
@@ -1082,6 +1092,9 @@ final class Model: NSObject, ObservableObject {
     }
 
     private func makeBuyIconsToastIfNeeded() -> Bool {
+        #if MOBLIN_HIDE_STORE
+        return false
+        #endif
         if store.hasBoughtSomething {
             return false
         }
@@ -1171,7 +1184,20 @@ final class Model: NSObject, ObservableObject {
         chatActivityFeed.interactiveChat = chat.interactiveChat
         interactiveBrowsers = getQuickButton(type: .interactiveBrowserWidgets)?.isOn ?? false
         _ = updateShowCameraPreview()
+        #if DEBUG
+        if let mode = UserDefaults.standard.string(forKey: "BackpackAppMode"),
+           let appMode = SettingsAppMode(rawValue: mode)
+        {
+            database.appMode = appMode
+        }
+        if let join = UserDefaults.standard.string(forKey: "BackpackJoinUrl"), let url = URL(string: join) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                self.handleDashboardUrl(url: url)
+            }
+        }
+        #endif
         show.chatPhone = isChatPhone()
+        show.companion = isCompanion()
         showChatLabelsForAWhile()
         updateScreenAutoOff()
         setDisplayPortrait(portrait: database.portrait)
@@ -1741,6 +1767,9 @@ final class Model: NSObject, ObservableObject {
         stopWorkoutDevices()
         stopRemoteControlAssistant()
         stopMoblinCloud()
+        stopBackpack()
+        stopDashboard()
+        stopHub()
         stopHttpProxyServer()
         fixedHorizonEffect.stop()
         cameraLevel.stop()
@@ -2406,6 +2435,25 @@ final class Model: NSObject, ObservableObject {
         reloadRemoteControlRelay()
         reloadRemoteControlWeb()
         reloadMoblinCloud()
+        reloadBackpack()
+        #if DEBUG
+        // For Simulator tests, which can't scan a code or confirm the system's
+        // open-link prompt.
+        if let text = UserDefaults.standard.string(forKey: "DashboardJoinUrl"),
+           !dashboard.debugJoinOpened,
+           let url = URL(string: text)
+        {
+            dashboard.debugJoinOpened = true
+            handleDashboardUrl(url: url)
+        }
+        #endif
+        if dashboard.joinLink == nil {
+            reloadDashboard()
+        }
+        #if DEBUG
+        handleDebugHubJoinUrl()
+        #endif
+        reloadHub()
         reloadKickViewers()
         reloadSoopPlatformStatus()
         reloadNtpClient()

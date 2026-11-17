@@ -113,6 +113,7 @@ private struct IconAndSettingsView: View {
 
     var body: some View {
         HStack(spacing: 0) {
+            #if !MOBLIN_HIDE_STORE
             Button {
                 model.toggleShowingPanel(type: nil, panel: .store)
             } label: {
@@ -125,6 +126,7 @@ private struct IconAndSettingsView: View {
                     .frame(width: controlBarButtonSize, height: controlBarButtonSize)
             }
             .buttonStyle(.plain)
+            #endif
             Button {
                 model.toggleShowingPanel(type: nil, panel: .settings)
             } label: {

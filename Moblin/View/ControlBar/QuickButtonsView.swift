@@ -402,6 +402,14 @@ struct QuickButtonsInnerView: View {
         model.toggleShowingPanel(type: .macros, panel: .macros)
     }
 
+    private func backpackAction() {
+        model.toggleShowingPanel(type: .backpack, panel: .backpack)
+    }
+
+    private func rigAction() {
+        model.toggleShowingPanel(type: .rig, panel: .rig)
+    }
+
     private func gimbalTrackingAction() {
         model.toggleGimbalTracking()
     }
@@ -1000,6 +1008,22 @@ struct QuickButtonsInnerView: View {
                                          buttonSize: size)
                         {
                             sceneEditorAction()
+                        }
+                    case .backpack:
+                        QuickButtonImage(model: model,
+                                         quickButtonsSettings: quickButtonsSettings,
+                                         button: button,
+                                         buttonSize: size)
+                        {
+                            backpackAction()
+                        }
+                    case .rig:
+                        QuickButtonImage(model: model,
+                                         quickButtonsSettings: quickButtonsSettings,
+                                         button: button,
+                                         buttonSize: size)
+                        {
+                            rigAction()
                         }
                     }
                 }

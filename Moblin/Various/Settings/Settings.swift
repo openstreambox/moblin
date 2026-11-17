@@ -849,12 +849,15 @@ enum SettingsExternalDisplayContent: String, Codable, CaseIterable {
 
 enum SettingsAppMode: String, Codable, CaseIterable {
     case streaming
+    case companion
     case chatPhone
 
     func toString() -> String {
         switch self {
         case .streaming:
-            String(localized: "Streaming")
+            String(localized: "Stream phone")
+        case .companion:
+            String(localized: "Companion")
         case .chatPhone:
             String(localized: "Chat phone")
         }
@@ -1290,6 +1293,8 @@ class Database: Codable, ObservableObject {
     @Published var gameControllers: [SettingsGameController] = [.init()]
     var remoteControl: SettingsRemoteControl = .init()
     var moblinCloud: SettingsMoblinCloud = .init()
+    var backpack: SettingsBackpack = .init()
+    var hub: SettingsHub = .init()
     @Published var startStopRecordingConfirmations: Bool = true
     var color: SettingsColor = .init()
     @Published var mirrorFrontCameraOnStream: Bool = true
@@ -1419,6 +1424,8 @@ class Database: Codable, ObservableObject {
         case gameControllers
         case remoteControl
         case moblinCloud
+        case backpack
+        case hub
         case startStopRecordingConfirmations
         case color
         case mirrorFrontCameraOnStream
@@ -1514,6 +1521,8 @@ class Database: Codable, ObservableObject {
         try container.encode(.gameControllers, gameControllers)
         try container.encode(.remoteControl, remoteControl)
         try container.encode(.moblinCloud, moblinCloud)
+        try container.encode(.backpack, backpack)
+        try container.encode(.hub, hub)
         try container.encode(.startStopRecordingConfirmations, startStopRecordingConfirmations)
         try container.encode(.color, color)
         try container.encode(.mirrorFrontCameraOnStream, mirrorFrontCameraOnStream)
@@ -1619,6 +1628,8 @@ class Database: Codable, ObservableObject {
         gameControllers = container.decode(.gameControllers, [SettingsGameController].self, [.init()])
         remoteControl = container.decode(.remoteControl, SettingsRemoteControl.self, .init())
         moblinCloud = container.decode(.moblinCloud, SettingsMoblinCloud.self, .init())
+        backpack = container.decode(.backpack, SettingsBackpack.self, .init())
+        hub = container.decode(.hub, SettingsHub.self, .init())
         startStopRecordingConfirmations = container.decode(.startStopRecordingConfirmations, Bool.self, true)
         color = container.decode(.color, SettingsColor.self, .init())
         mirrorFrontCameraOnStream = container.decode(.mirrorFrontCameraOnStream, Bool.self, true)
@@ -1941,6 +1952,16 @@ private func addMissingQuickButtonsPageOne(database: Database) {
                                  imageOn: "globe",
                                  page: page)
     updateQuickButton(database: database, button: button)
+    button = SettingsQuickButton(type: .backpack,
+                                 imageOn: "backpack.fill",
+                                 imageOff: "backpack",
+                                 page: page)
+    updateQuickButton(database: database, button: button)
+    button = SettingsQuickButton(type: .rig,
+                                 imageOn: "point.3.filled.connected.trianglepath.dotted",
+                                 imageOff: "point.3.connected.trianglepath.dotted",
+                                 page: page)
+    updateQuickButton(database: database, button: button)
 }
 
 private func addMissingQuickButtonsPageTwo(database: Database) {
@@ -2204,6 +2225,11 @@ private func addMissingQuickButtons(database: Database) {
         if button.type == .portrait, isMac() {
             return false
         }
+        #if MOBLIN_HIDE_MASCOT
+        if button.type == .moblinInMouth {
+            return false
+        }
+        #endif
         return true
     }
 }
@@ -2300,6 +2326,25 @@ func getDefaultMic() -> SettingsMic {
     return .bottom
 }
 
+private let backpackHiddenQuickButtons: Set<SettingsQuickButtonType> = [
+    .sceneEditor,
+    .widgets,
+    .blackScreen,
+    .localOverlays,
+    .snapshot,
+    .record,
+    .browser,
+    .torch,
+]
+
+@MainActor
+private func hideBackpackDefaultQuickButtons(database: Database) {
+    for button in database.quickButtons where backpackHiddenQuickButtons.contains(button.type) {
+        button.enabled = false
+    }
+    database.backpack.quickButtonsTrimmed = true
+}
+
 @MainActor
 private func createDefault() -> Database {
     let database = Database()
@@ -2307,6 +2352,7 @@ private func createDefault() -> Database {
     addDefaultZoomPresets(database: database)
     addDefaultBitratePresets(database: database)
     addMissingQuickButtons(database: database)
+    hideBackpackDefaultQuickButtons(database: database)
     addMissingDeepLinkQuickButtons(database: database)
     addScenesToGameController(database: database)
     addMissingBundledLuts(database: database)
@@ -2511,6 +2557,10 @@ final class Settings {
         let newButtons = realDatabase.quickButtons
         if realDatabase.quickButtons.count != newButtons.count {
             realDatabase.quickButtons = newButtons
+            store()
+        }
+        if !realDatabase.backpack.quickButtonsTrimmed {
+            hideBackpackDefaultQuickButtons(database: realDatabase)
             store()
         }
     }

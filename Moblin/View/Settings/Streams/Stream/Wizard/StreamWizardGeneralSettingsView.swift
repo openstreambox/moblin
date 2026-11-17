@@ -25,6 +25,7 @@ struct StreamWizardGeneralSettingsView: View {
                     BackgroundStreamingFooterView()
                 }
             }
+            #if !MOBLIN_HIDE_MOBLIN_SERVICES
             if !isMac() {
                 Section {
                     Toggle(
@@ -33,6 +34,7 @@ struct StreamWizardGeneralSettingsView: View {
                     )
                 }
             }
+            #endif
             Section {
                 TextButtonView("Create") {
                     model.createStreamFromWizard()

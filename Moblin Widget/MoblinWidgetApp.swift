@@ -48,6 +48,10 @@ struct MoblinWidgetAppEntryView: View {
     }
 }
 
+private func widgetAppDisplayName() -> String {
+    Bundle.main.infoDictionary?["MoblinDisplayName"] as? String ?? "Moblin"
+}
+
 @main
 struct MoblinWidgetApp: Widget {
     let kind: String = "MoblinWidgetApp"
@@ -57,7 +61,10 @@ struct MoblinWidgetApp: Widget {
             MoblinWidgetAppEntryView()
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Moblin")
-        .description("Moblin widget.")
+        .configurationDisplayName(widgetAppDisplayName())
+        .description(String(localized: "Moblin widget.").replacingOccurrences(
+            of: "Moblin",
+            with: widgetAppDisplayName()
+        ))
     }
 }

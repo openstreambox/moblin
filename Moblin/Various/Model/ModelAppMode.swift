@@ -3,10 +3,17 @@ import Foundation
 
 extension Model {
     func isChatPhone() -> Bool {
-        database.appMode == .chatPhone
+        database.appMode != .streaming
+    }
+
+    func isCompanion() -> Bool {
+        database.appMode == .companion
     }
 
     func isQuickButtonAllowed(type: SettingsQuickButtonType) -> Bool {
+        if isCompanion() {
+            return database.backpack.companionButtons.contains(type)
+        }
         guard isChatPhone() else {
             return true
         }
@@ -110,6 +117,8 @@ extension Model {
 
     func appModeChanged() {
         show.chatPhone = isChatPhone()
+        show.companion = isCompanion()
+        backpack.suggestedAppMode = nil
         mic.current = noMic
         updateQuickButtonPairs()
         updateScreenAutoOff()
@@ -119,6 +128,7 @@ extension Model {
         updateOrientation()
         updateOrientationLock()
         setupAudio()
+        reportDashboardState()
     }
 
     func startChatPhoneBackgroundAudio() {

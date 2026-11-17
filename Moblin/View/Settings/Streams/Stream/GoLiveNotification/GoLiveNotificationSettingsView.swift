@@ -58,6 +58,7 @@ struct GoLiveNotificationSettingsView: View {
             } label: {
                 DiscordLogoAndNameView()
             }
+            #if !MOBLIN_HIDE_MOBLIN_SERVICES
             if !isMac() {
                 Section {
                     Toggle(
@@ -66,6 +67,7 @@ struct GoLiveNotificationSettingsView: View {
                     )
                 }
             }
+            #endif
         }
         .navigationTitle("Go live notification")
     }

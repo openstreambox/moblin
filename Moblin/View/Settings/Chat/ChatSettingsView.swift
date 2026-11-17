@@ -13,6 +13,7 @@ private struct ChatSettingsGeneralView: View {
     }
 
     var body: some View {
+        #if !MOBLIN_HIDE_CHAT_BOT
         NavigationLink {
             ChatBotSettingsView()
         } label: {
@@ -25,6 +26,7 @@ private struct ChatSettingsGeneralView: View {
                 Text("Bot")
             }
         }
+        #endif
         NavigationLink {
             ChatTextToSpeechSettingsView(
                 model: model,

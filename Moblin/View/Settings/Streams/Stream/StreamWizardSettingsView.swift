@@ -72,6 +72,7 @@ struct StreamWizardSettingsView: View {
             } header: {
                 Text("Platform to stream to")
             }
+            #if !MOBLIN_HIDE_MOBLIN_SERVICES
             if !isMac() {
                 Section {
                     NavigationLink {
@@ -81,6 +82,7 @@ struct StreamWizardSettingsView: View {
                     }
                 }
             }
+            #endif
             Section {
                 NavigationLink {
                     StreamWizardCustomSettingsView(model: model, createStreamWizard: createStreamWizard)

@@ -33,10 +33,35 @@ func getOrientation() -> UIDeviceOrientation {
     }
 }
 
+// Fork: no vibration or haptics unless switched on (UserDefaults
+// "OsbVibration"); test phones often sit on a desk next to people.
+func isVibrationEnabled() -> Bool {
+    UserDefaults.standard.bool(forKey: "OsbVibration")
+}
+
 extension UIDevice {
     static func vibrate() {
+        guard isVibrationEnabled() else {
+            return
+        }
         AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
     }
+}
+
+@MainActor
+func hapticNotification(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+    guard isVibrationEnabled() else {
+        return
+    }
+    UINotificationFeedbackGenerator().notificationOccurred(type)
+}
+
+@MainActor
+func hapticTap() {
+    guard isVibrationEnabled() else {
+        return
+    }
+    UIImpactFeedbackGenerator(style: .light).impactOccurred()
 }
 
 @MainActor

@@ -6,7 +6,7 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
-			<string>Moblin settings</string>
+			<string>$(MOBLIN_DISPLAY_NAME) settings</string>
 			<key>LSHandlerRank</key>
 			<string>Owner</string>
 			<key>LSItemContentTypes</key>
@@ -26,7 +26,27 @@
 			<string>com.eerimoq.Mobs</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>moblin</string>
+				<string>$(MOBLIN_URL_SCHEME)</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>openstreambox.join</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>openstreambox</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>CFBundleURLName</key>
+			<string>openstreambox.hub</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>osb-hub</string>
 			</array>
 		</dict>
 	</array>
@@ -34,6 +54,10 @@
 	<array>
 		<string>elgato-device-driver</string>
 	</array>
+	<key>MoblinDisplayName</key>
+	<string>$(MOBLIN_DISPLAY_NAME)</string>
+	<key>MoblinUrlScheme</key>
+	<string>$(MOBLIN_URL_SCHEME)</string>
 	<key>MoblinCloudApiUrl</key>
 	<string>$(MOBLIN_CLOUD_API_URL)</string>
 	<key>MoblinWebsiteApiUrl</key>
@@ -47,6 +71,7 @@
 	<array>
 		<string>_http._tcp</string>
 		<string>_moblink._tcp</string>
+		<string>_osb-backpack._tcp</string>
 	</array>
 	<key>NSCameraReactionEffectsEnabled</key>
 	<true/>
@@ -89,7 +114,7 @@
 				<string>public.data</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Moblin settings</string>
+			<string>$(MOBLIN_DISPLAY_NAME) settings</string>
 			<key>UTTypeIconFiles</key>
 			<array/>
 			<key>UTTypeIdentifier</key>

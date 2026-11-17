@@ -189,6 +189,12 @@ private struct StatusesView: View {
     }
 
     var body: some View {
+        if model.isHubJoined() {
+            HubStatusRowView(model: model, hub: model.hub, textPlacement: textPlacement)
+        }
+        if model.database.backpack.enabled {
+            BackpackStatusRowView(model: model, backpack: model.backpack, textPlacement: textPlacement)
+        }
         if model.isShowingStatusStream() {
             StreamStatusView(status: status, textPlacement: textPlacement)
         }

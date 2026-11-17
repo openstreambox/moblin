@@ -1,4 +1,15 @@
+MOBLIN_DISPLAY_NAME = Moblin
+MOBLIN_URL_SCHEME = moblin
+MOBLIN_HIDDEN_FEATURES =
+MOBLIN_EXCLUDED_FILES =
+MOBLIN_BRAND_RESOURCES =
+
+// Optional. A fork can rename the app, hide features and swap the brand assets here.
+#include? "Fork.xcconfig"
 #include "User.xcconfig"
+
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) $(MOBLIN_HIDDEN_FEATURES)
+EXCLUDED_SOURCE_FILE_NAMES = $(inherited) $(MOBLIN_EXCLUDED_FILES)
 
 MARKETING_VERSION = 35.7.0
 CURRENT_PROJECT_VERSION = 380
