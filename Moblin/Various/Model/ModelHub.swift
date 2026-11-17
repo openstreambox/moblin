@@ -83,6 +83,7 @@ class HubProvider: ObservableObject {
     // older trail lines fetched with "Show older", the row whose Remove
     // waits for its confirm, and the row whose last request failed.
     @Published var access: HubAccess?
+    @Published var accessLoadFailed = false
     @Published var accessOlder: [HubTrailEntry] = []
     @Published var accessMore: Bool?
     @Published var accessConfirming: HubAccessConfirm?

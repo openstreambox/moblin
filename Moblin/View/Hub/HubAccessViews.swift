@@ -492,9 +492,17 @@ struct HubAccessView: View {
                     HubStatusView(status: HubStatus(kind: .unknown,
                                                     title: HubWords.Access.unknownTitle,
                                                     line: hub.connected
-                                                        ? String(localized: "Asking the hub who has access…")
+                                                        ? (hub.accessLoadFailed
+                                                            ? String(localized: "This hub couldn’t list who has access.")
+                                                            : String(localized: "Asking the hub who has access…"))
                                                         : HubWords.Access.unknownLine))
                         .listRowBackground(HubLook.surface)
+                    if hub.accessLoadFailed {
+                        Button("Try again") {
+                            model.hubRefreshAccess()
+                        }
+                        .listRowBackground(HubLook.surface)
+                    }
                 }
             }
         }
