@@ -909,6 +909,92 @@ struct HubCrewSuite {
         ])
     }
 
+    // Handed over while not live, the handover waits for Go live as
+    // long as the owner chose (30 minutes unless another time is picked).
+    // The states are what the reference hub sent: handed at 18:00, 3 hours
+    // picked.
+
+    @Test
+    func handingOverBeforeGoLiveAsksHowLongItMayWaitThirtyMinutesFirst() throws {
+        #expect(HubWait.allCases.first == .halfHour)
+        #expect(HubWait.allCases.map(\.milliseconds) ==
+            [1_800_000, 3_600_000, 10_800_000, 43_200_000, 86_400_000, 604_800_000])
+        #expect(HubWait.allCases.map(\.label) ==
+            ["30 minutes", "1 hour", "3 hours", "12 hours", "24 hours", "7 days"])
+        #expect(HubWait.allCases.allSatisfy { $0.milliseconds >= 60000 && $0.milliseconds <= 7 * 86_400_000 })
+        #expect(hubHandRequest("dev-box", wait: nil) as NSDictionary == ["device": "dev-box"] as NSDictionary)
+        #expect(hubHandRequest("dev-box", wait: .halfHour) as NSDictionary
+            == ["device": "dev-box", "wait_ms": 1_800_000] as NSDictionary)
+        #expect(hubHandRequest("dev-box", wait: .threeHours) as NSDictionary
+            == ["device": "dev-box", "wait_ms": 10_800_000] as NSDictionary)
+        #expect(HubWords.Access.Wait.title == "How long may it wait for the stream to go live?")
+        // Hand over asks for the wait only while the stream isn't live, as the
+        // newest state says.
+        var box = grant("dev-box", name: "Backpack", role: "member", allows: member, can: ["change", "end", "hand"])
+        box.person = HubPersonRef(id: "per-1", name: "Alex")
+        let phone = grant("dev-phone", name: "iPhone", role: "admin", allows: admin, can: [], person: "per-1")
+        var ready = list([phone, box], people: [HubPerson(id: "per-1", name: "Alex", you: true)])
+        ready.stream.live = "ready"
+        func handRow(_ access: HubAccess, _ state: HubState?) throws -> HubAccessRow {
+            try #require(hubAccessPage(access, state: state, connected: true, when: when())?.sections
+                .flatMap(\.rows).first { $0.hand != nil })
+        }
+        var idle = state()
+        idle.session.live = "ready"
+        idle.session.output = HubOutput(state: "off")
+        #expect(try handRow(ready, idle).handWaits)
+        #expect(try handRow(ready, nil).handWaits)
+        #expect(try !handRow(ready, state()).handWaits)
+        var live = ready
+        live.stream.live = "live"
+        #expect(try !handRow(live, nil).handWaits)
+    }
+
+    @Test
+    func aHandoverWaitingForGoLiveSaysByWhenToEveryone() throws {
+        let waiting = hubState(#"{"device":"dev-jo","since":"2026-11-17T18:00:00.000Z","ends_at":"2026-11-17T21:00:00.000Z","ends_why":"not_live","end_time":null,"stopped_at":null,"wait_until":"2026-11-17T21:00:00.000Z","asked_at":null}"#,
+                               live: "ready")
+        #expect(waiting.session.runBy?.waitUntil == "2026-11-17T21:00:00.000Z")
+        let clock = at("2026-11-17T18:01:00Z")
+        // The person it was handed to: the whole wait says by when.
+        let session = hubCrewPage(state: waiting, access: nil, me: "dev-jo", role: "helper", when: clock)
+        #expect(session.manages)
+        #expect(session.session?.line == "You run this stream.")
+        #expect(session.session?.ends == "Go live by today at 21:00 to keep running this stream.")
+        let warned = HubEnding(endsAt: "2026-11-17T21:00:00.000Z", why: "not_live", live: false)
+        #expect(hubCrewPage(state: waiting, access: nil, me: "dev-jo", role: "helper", ending: warned,
+                            when: at("2026-11-17T20:46:00Z")).session?.ends
+            == "Go live by today at 21:00 to keep running this stream.")
+        #expect(hubHandoverWatch(waiting, me: "dev-jo", role: "helper", now: clock.now)
+            == .endsAt(HubWhen.date("2026-11-17T21:00:00.000Z")!))
+        #expect(hubHandoverWatch(waiting, me: "dev-jo", role: "helper", now: at("2026-11-17T21:00:00Z").now)
+            == .ranOut)
+        #expect(HubWords.Crew.takenBack("not_live", role: "helper") ==
+            "The stream didn't go live in time, so your handover ended. What you let in has ended too.")
+        // An owner device: why and until when, and nobody is asked.
+        var access = ownerAccess(endsAt: "2026-11-17T21:00:00.000Z")
+        access.can = ["clear_trail", "keep_stream"]
+        access.stream.live = "ready"
+        access.stream.runBy?.endsWhy = "not_live"
+        access.stream.runBy?.waitUntil = "2026-11-17T21:00:00.000Z"
+        let owner = hubCrewPage(state: hubState(#"{"device":"dev-jo","since":"2026-11-17T18:00:00.000Z","ends_at":"2026-11-17T21:00:00.000Z","ends_why":"not_live","end_time":null,"stopped_at":null,"wait_until":"2026-11-17T21:00:00.000Z","asked_at":null}"#,
+                                                live: "ready"),
+                                access: access, me: "dev-phone", role: "admin", when: clock)
+        #expect(owner.stream?.detail == "Waiting for the stream to go live. Ends today at 21:00 if it doesn't.")
+        #expect(owner.stream?.ask == nil)
+        #expect(owner.stream?.endTimes != nil)
+        let jo = HubParty(kind: "device", id: "dev-jo", name: "Jo's laptop", role: "helper")
+        #expect(hubTrailLine(HubTrailEntry(seq: 1, at: "2026-11-17T21:00:00Z", type: "stream.taken_back",
+                                           by: HubParty(kind: "hub", id: "hub", name: "The hub"), subject: jo,
+                                           detail: HubTrailDetail(why: "not_live")),
+                             when: clock) == "Jo's laptop's handover ended: the stream didn't go live in time")
+        // Live in time: the next state has no wait, and the usual rules hold.
+        let liveNow = hubState(#"{"device":"dev-jo","since":"2026-11-17T18:00:00.000Z","ends_at":"2026-11-19T18:40:00.000Z","ends_why":"unanswered","end_time":null,"stopped_at":null,"wait_until":null,"asked_at":null}"#)
+        #expect(hubCrewPage(state: liveNow, access: nil, me: "dev-jo", role: "helper",
+                            when: at("2026-11-17T18:40:00Z")).session?.ends
+            == "Runs while the stream is live, and ends Thursday 19 Nov at 18:40 if nothing changes.")
+    }
+
     @Test
     func onlyTheBrandBuildSaysSetup() {
         let words = [

@@ -83,6 +83,8 @@ struct HubSessionRunBy: Codable, Equatable {
     var stoppedAt: String?
     // Owner devices were asked whether it goes on, and nobody answered yet.
     var askedAt: String?
+    // Handed over while not live: it ends then unless the stream goes live.
+    var waitUntil: String?
 
     enum CodingKeys: String, CodingKey {
         case device
@@ -92,6 +94,7 @@ struct HubSessionRunBy: Codable, Equatable {
         case endTime = "end_time"
         case stoppedAt = "stopped_at"
         case askedAt = "asked_at"
+        case waitUntil = "wait_until"
     }
 }
 
@@ -151,6 +154,10 @@ func hubRunEndLine(_ state: HubState?, me: String?, ending: HubEnding?, when: Hu
     }
     if let ending, ending.endsAt == endsAt {
         return HubWords.Crew.ending(ending.why, live: ending.live, when.text(endsAt))
+    }
+    // While it waits for Go live, the whole wait says by when.
+    if run.waitUntil != nil || run.endsWhy == "not_live" {
+        return HubWords.Crew.ending("not_live", live: false, when.text(endsAt))
     }
     if end.timeIntervalSince(when.now) <= hubEndingSoon || run.endsWhy == "time" {
         return HubWords.Crew.ending(run.endsWhy, live: state.session.live == "live", when.text(endsAt))

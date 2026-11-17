@@ -86,8 +86,11 @@ list and its wording in `Moblin/Hub/HubAccess.swift`.
   sets their own name here too.
 - **A handed-over stream:** an owner hands one stream to a helper, by a link
   or on their row, and sees who runs it, until when and why, and what they let
-  in, with Set an end time (1 hour to 7 days, or none) and Take back. A
-  handover runs while the stream is live; when the hub asks the owner devices
+  in, with Set an end time (1 hour to 7 days, or none) and Take back. Handed
+  over before Go live, it asks how long the handover may wait for the stream
+  to go live (30 minutes unless another time is picked); the phone it was
+  handed to says by when to go live. A handover runs while the stream is
+  live; when the hub asks the owner devices
   whether it goes on, the question shows on the panel, in Crew and in Who has
   access with Keep, Set an end time and Take back now, and as a quiet
   notification. Ignoring it is safe. The phone that was handed a stream says

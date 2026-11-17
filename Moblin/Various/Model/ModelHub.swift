@@ -113,6 +113,9 @@ class HubProvider: ObservableObject {
     @Published var handoverAnswer: HubHandoverAnswer?
     // A notification about the hub's ask is in the list until it is answered.
     var askNoticed = false
+    // Handing over while not live: how long it may wait for Go live, kept
+    // while the dialog is open.
+    @Published var handWait: HubWait = .halfHour
     var accessRefreshTask: Task<Void, Never>?
     var accessRefreshAgain = false
 

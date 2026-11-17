@@ -425,8 +425,9 @@ extension Model {
         hub.access?.grants.first { $0.id == device }?.newOwner == true
     }
 
-    func hubHandStream(_ device: String) {
-        hubAccessRequest(device, "stream.hand", ["device": device])
+    // wait: how long a handover given while not live may wait for Go live.
+    func hubHandStream(_ device: String, wait: HubWait? = nil) {
+        hubAccessRequest(device, "stream.hand", hubHandRequest(device, wait: wait))
     }
 
     func hubTakeBackStream(_ grant: String) {

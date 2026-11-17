@@ -54,6 +54,7 @@ struct HubRunBy: Codable, Equatable {
     var stoppedAt: String?
     var askedAt: String?
     var answeredAt: String?
+    var waitUntil: String?
 
     enum CodingKeys: String, CodingKey {
         case kind
@@ -69,6 +70,7 @@ struct HubRunBy: Codable, Equatable {
         case stoppedAt = "stopped_at"
         case askedAt = "asked_at"
         case answeredAt = "answered_at"
+        case waitUntil = "wait_until"
     }
 }
 
@@ -555,6 +557,9 @@ struct HubAccessRow: Equatable, Identifiable {
     let hand: End?
     let change: [HubAccessChange]?
     let end: End?
+    // Hand over also asks how long it may wait for Go live: the stream
+    // isn't live.
+    var handWaits = false
 
     // Read by VoiceOver as one sentence group.
     var spoken: String {
@@ -641,7 +646,7 @@ func hubCoOwnerConfirm(person: String?, device: String) -> HubAccessRow.End {
     return .init(label: HubWords.Access.makeCoOwner, confirm: HubWords.Access.confirmCoOwner(who, device))
 }
 
-func hubAccessRow(_ grant: HubGrant, when: HubWhen, shared: Bool = false) -> HubAccessRow {
+func hubAccessRow(_ grant: HubGrant, when: HubWhen, shared: Bool = false, live: Bool = true) -> HubAccessRow {
     let can = Set(grant.can)
     let role = HubWords.Access.role(grant.role)
     let person = grant.person?.name?.isEmpty == false ? grant.person!.name! : HubWords.Access.unnamedLower
@@ -743,7 +748,8 @@ func hubAccessRow(_ grant: HubGrant, when: HubWhen, shared: Bool = false) -> Hub
                             ? hubCoOwnerConfirm(person: grant.person?.name, device: named) : nil,
                         hand: hand,
                         change: change,
-                        end: end)
+                        end: end,
+                        handWaits: hand != nil && !live)
 }
 
 private func who(_ party: HubParty?) -> String {
@@ -935,6 +941,8 @@ func hubTrailLine(_ entry: HubTrailEntry, when: HubWhen) -> String {
             return String(localized: "\(name)'s handover ended at its end time\(lost)")
         case "unanswered":
             return String(localized: "\(name)'s handover ended: no owner kept it\(lost)")
+        case "not_live":
+            return String(localized: "\(name)'s handover ended: the stream didn't go live in time\(lost)")
         case "removed":
             return String(localized: "\(name)'s handover ended when the device was removed\(lost)")
         case "restart":
@@ -989,6 +997,65 @@ struct HubHandoverAsk: Equatable {
     let line: String
     // Keep is the view's filled button unless an Allow is on the same view.
     let filled: Bool
+}
+
+// Handing over while the stream isn't live: how long it may wait for Go
+// live (wait_ms on stream.hand). The first is the hub's default, so it is
+// the one picked until the owner picks another; the hub takes one minute to
+// seven days.
+enum HubWait: String, CaseIterable, Identifiable {
+    case halfHour
+    case hour
+    case threeHours
+    case halfDay
+    case day
+    case week
+
+    var id: String {
+        rawValue
+    }
+
+    var label: String {
+        switch self {
+        case .halfHour:
+            HubWords.Access.Wait.halfHour
+        case .hour:
+            HubWords.Access.Wait.hour
+        case .threeHours:
+            HubWords.Access.Wait.threeHours
+        case .halfDay:
+            HubWords.Access.Wait.halfDay
+        case .day:
+            HubWords.Access.Wait.day
+        case .week:
+            HubWords.Access.Wait.week
+        }
+    }
+
+    var milliseconds: Int {
+        switch self {
+        case .halfHour:
+            30 * 60000
+        case .hour:
+            3_600_000
+        case .threeHours:
+            3 * 3_600_000
+        case .halfDay:
+            12 * 3_600_000
+        case .day:
+            24 * 3_600_000
+        case .week:
+            7 * 24 * 3_600_000
+        }
+    }
+}
+
+// What Hand over asks the hub for: with a wait only while not live.
+func hubHandRequest(_ device: String, wait: HubWait?) -> [String: Any] {
+    guard let wait else {
+        return ["device": device]
+    }
+    return ["device": device, "wait_ms": wait.milliseconds]
 }
 
 // When the handover should end, from now: one choice sends stream.keep with
@@ -1069,6 +1136,7 @@ func hubHandoverTimes(_ run: HubRunBy, state: HubState?) -> HubRunBy {
         times.endTime = newest.endTime
         times.stoppedAt = newest.stoppedAt
         times.askedAt = newest.askedAt
+        times.waitUntil = newest.waitUntil
     }
     return times
 }
@@ -1198,8 +1266,10 @@ func hubAccessPage(_ access: HubAccess?,
     let me = access.asWho?.id
     let guest = access.asWho?.role != "admin" && runsNow(me)
     let shared = people.count > 1 || guest
+    // Live as the newest state says, else as the list says.
+    let live = state.map { $0.session.live == "live" } ?? (access.stream.live == "live")
     func rows(_ test: (HubGrant) -> Bool) -> [HubAccessRow] {
-        access.grants.filter(test).map { hubAccessRow($0, when: when, shared: shared) }
+        access.grants.filter(test).map { hubAccessRow($0, when: when, shared: shared, live: live) }
     }
     func owner(_ grant: HubGrant) -> HubPerson? {
         people.first { $0.id == grant.person?.id } ?? (people.count == 1 ? people[0] : nil)
@@ -1239,7 +1309,6 @@ func hubAccessPage(_ access: HubAccess?,
     var running: HubAccessRunning?
     if let listed = access.stream.runBy, listed.kind == "handed", runsNow(listed.device?.id) {
         let run = hubHandoverTimes(listed, state: state)
-        let live = state.map { $0.session.live == "live" } ?? (access.stream.live == "live")
         let answers = access.can?.contains("keep_stream") == true
         let device = run.device?.name ?? ""
         let gave = gaveList(run.gave)

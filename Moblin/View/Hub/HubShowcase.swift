@@ -324,6 +324,25 @@ extension Model {
         case "access-ask":
             variant = "asked"
             screens = [.access]
+        case "access-hand-wait", "access-hand-live":
+            // Hand over on the Backpack's row: before Go live it asks how
+            // long the handover may wait.
+            let before = name == "access-hand-wait"
+            if before {
+                state.session.live = "ready"
+                state.session.output = HubOutput(state: "off")
+                state.session.program = nil
+            }
+            hub.access = showcaseAccess(variant: "plain", live: !before)
+            // First in its section, so its dialog is on screen.
+            if let index = hub.access?.grants.firstIndex(where: { $0.id == "dev-box" }),
+               let box = hub.access?.grants.remove(at: index)
+            {
+                hub.access?.grants.insert(box, at: 0)
+            }
+            hub.handWait = .halfHour
+            hub.accessConfirming = HubAccessConfirm(grant: "dev-box", action: .hand)
+            screens = [.access]
         case "owner-theirs":
             variant = "theirs"
         case "crew-theirs":
@@ -474,7 +493,10 @@ extension Model {
         return true
     }
 
-    private func hubShowcaseSession(_ name: String) -> Bool {
+    private func hubShowcaseSession(_ fixture: String) -> Bool {
+        // "<fixture>-crew": the same, on the crew list.
+        let onCrew = fixture != "session-crew" && fixture.hasSuffix("-crew")
+        let name = onCrew ? String(fixture.dropLast(5)) : fixture
         hubShowcaseJoined()
         database.hub.role = "helper"
         var state = showcaseState(live: true, program: showcaseDesk, feed: "checked", links: 2)
@@ -501,6 +523,13 @@ extension Model {
             // Live, and no owner answered for nearly 48 hours.
             state.session.runBy = HubSessionRunBy(device: showcaseMe, since: iso(-2870), endsAt: iso(10),
                                                   endsWhy: "unanswered", askedAt: iso(-60))
+        case "session-waiting":
+            // Handed over before Go live, with 3 hours to go live.
+            state.session.live = "ready"
+            state.session.output = HubOutput(state: "off")
+            state.session.program = nil
+            state.session.runBy = HubSessionRunBy(device: showcaseMe, since: iso(-5), endsAt: iso(175),
+                                                  endsWhy: "not_live", waitUntil: iso(175))
         case "session-ended-unanswered":
             state.devices[0].runsStream = false
             state.session.runBy = nil
@@ -531,6 +560,9 @@ extension Model {
         hub.state = state
         hub.access = name == "session-taken-back" || name == "session-ended-unanswered" ? nil
             : showcaseSessionAccess()
+        if onCrew {
+            screens = [.crew]
+        }
         if showingPanel != .rig {
             toggleShowingPanel(type: .rig, panel: .rig)
         }
@@ -576,6 +608,7 @@ extension Model {
         hub.ending = nil
         hub.choosingEndTime = nil
         hub.handoverAnswer = nil
+        hub.handWait = .halfHour
         hub.showcaseSection = nil
         hub.path = []
         database.hub = SettingsHub()

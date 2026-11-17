@@ -251,6 +251,8 @@ enum HubWords {
                 String(localized: "Your handover ran out at the end time an owner set.")
             case "unanswered":
                 String(localized: "No owner kept your handover, so it ended. What you let in has ended too.")
+            case "not_live":
+                String(localized: "The stream didn't go live in time, so your handover ended. What you let in has ended too.")
             case "handed_on":
                 String(localized: "The stream was handed to someone else.")
             case "taken_back" where role == "helper":
@@ -289,6 +291,8 @@ enum HubWords {
                 String(localized: "The stream stopped. Go live again by \(when) to keep running it.")
             case "time":
                 String(localized: "Your handover ends \(when), the end time an owner set.")
+            case "not_live":
+                String(localized: "Go live by \(when) to keep running this stream.")
             default:
                 live ? String(localized: "Your handover ends \(when) unless an owner keeps it.")
                     : String(localized: "Your handover ends \(when) unless you go live or an owner keeps it.")
@@ -469,6 +473,8 @@ enum HubWords {
                 String(localized: "Ends \(when), the end time set for it.")
             case "stream":
                 String(localized: "The stream stopped. Ends \(when) unless it goes live again.")
+            case "not_live":
+                String(localized: "Waiting for the stream to go live. Ends \(when) if it doesn't.")
             default:
                 live ? String(localized: "Runs while the stream is live. Without an owner's answer it ends \(when).")
                     : String(localized: "The stream isn't live. Ends \(when) unless it goes live or an owner keeps it.")
@@ -657,6 +663,20 @@ enum HubWords {
             static func endSet(_ when: String) -> String {
                 String(localized: "Ends \(when).")
             }
+        }
+
+        // Handing over while the stream isn't live: how long the handover
+        // may wait for Go live.
+        enum Wait {
+            static let title = String(localized: "How long may it wait for the stream to go live?")
+            static let line =
+                String(localized: "If the stream isn't live by then, the handover ends, and so does what they let in. Once it's live, it runs while the stream does.")
+            static let halfHour = String(localized: "30 minutes")
+            static let hour = String(localized: "1 hour")
+            static let threeHours = String(localized: "3 hours")
+            static let halfDay = String(localized: "12 hours")
+            static let day = String(localized: "24 hours")
+            static let week = String(localized: "7 days")
         }
 
         enum EndTime {
