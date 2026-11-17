@@ -5,11 +5,16 @@ struct HubOwnership: Codable, Equatable {
     var root: String
     var epoch: Int
     var points: [Point]
+    var lineage: Int?
 
     struct Point: Codable, Equatable {
         var epoch: Int
         var hash: String
         var takeover: Bool
+    }
+
+    var counterLineage: Int {
+        lineage ?? points.last(where: \.takeover)?.epoch ?? points.first?.epoch ?? 1
     }
 
     private static func recordData(_ record: [String: Any], signature: Bool) throws -> Data {
@@ -111,10 +116,18 @@ struct HubOwnership: Codable, Equatable {
             tipKey = key
         }
         guard points.last?.epoch == nextEpoch, tipKey == nil || tipKey == hubKey else { throw fail }
+        var lineage = points.last(where: \.takeover)?.epoch ?? points[0].epoch
         if let held {
             guard follows(held.points, points) else { throw fail }
+            if !points.contains(where: \.takeover), points[0].epoch > 1,
+               held.points.contains(where: { have in
+                   points.contains { $0.epoch == have.epoch && $0.hash == have.hash }
+               })
+            {
+                lineage = held.counterLineage
+            }
         }
-        return HubOwnership(root: root, epoch: nextEpoch, points: points)
+        return HubOwnership(root: root, epoch: nextEpoch, points: points, lineage: lineage)
     }
 
     private static func follows(_ have: [Point], _ got: [Point]) -> Bool {
@@ -139,20 +152,32 @@ struct HubOwnership: Codable, Equatable {
     }
 }
 
+struct HubAccessFloor: Codable, Equatable {
+    var seq: Int
+    var lineage: Int
+
+    static func strongest(_ one: HubAccessFloor?, _ other: HubAccessFloor?) -> HubAccessFloor? {
+        guard let one, let other else {
+            return one ?? other
+        }
+        return (one.lineage, one.seq) >= (other.lineage, other.seq) ? one : other
+    }
+}
+
 func hubValidateEvidence(
     _ message: HubMessage,
     hubKey: String,
     ownership: HubOwnership?,
     epoch: Int?,
-    seen: HubSeen?
+    floor: HubAccessFloor?
 ) throws -> HubOwnership? {
     let state = message.object["state"] as? [String: Any]
     guard let hub = (message.object["hub"] ?? state?["hub"]) as? [String: Any] else {
         throw HubConnectionError.invalid("missing hub evidence")
     }
     let next = try HubOwnership.read(hub, hubKey: hubKey, held: ownership, epoch: epoch)
-    if let state {
-        let stateHub = state["hub"] as? [String: Any]
+    let stateHub = state?["hub"] as? [String: Any]
+    if state != nil {
         if let other = hubWholeNumber(stateHub?["epoch"]), other != hubWholeNumber(hub["epoch"]) {
             throw HubConnectionError.invalid("conflicting state epoch")
         }
@@ -164,12 +189,12 @@ func hubValidateEvidence(
                 epoch: hubWholeNumber(hub["epoch"])
             )
         }
-        if let seen {
-            guard let seq = hubWholeNumber((stateHub?["access"] as? [String: Any])?["seq"]),
-                  seq >= seen.accessSeq
-            else {
-                throw HubConnectionError.invalid("stale access evidence")
-            }
+    }
+    if let floor, (next?.counterLineage ?? 1) <= floor.lineage {
+        guard let seq = hubWholeNumber(((stateHub ?? hub)["access"] as? [String: Any])?["seq"]),
+              seq >= floor.seq
+        else {
+            throw HubConnectionError.invalid("stale access evidence")
         }
     }
     return next

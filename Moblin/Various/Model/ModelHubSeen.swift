@@ -2,41 +2,17 @@ import Foundation
 
 extension Model {
     func hubLearn(_ message: HubMessage) {
-        let accepted: HubOwnership?
-        do {
-            accepted = try hubValidateEvidence(message, hubKey: database.hub.hubKey,
-                                               ownership: database.hub.ownership, epoch: database.hub.epoch,
-                                               seen: hub.seen)
-        } catch { return }
-        let ownershipChanged = accepted != database.hub.ownership
-        database.hub.ownership = accepted
-        let state = message.object["state"] as? [String: Any]
-        let stateHub = state?["hub"] as? [String: Any]
-        var changed = ownershipChanged
-        if let epoch = hubEpoch(message) ?? hubWholeNumber(stateHub?["epoch"]),
-           epoch >= (database.hub.epoch ?? 0), epoch != database.hub.epoch
-        {
-            database.hub.epoch = epoch
-            changed = true
-        }
-        if let urls = stateHub?["urls"] as? [String], urls != database.hub.hubUrls {
-            database.hub.hubUrls = urls
-            changed = true
-        }
-        if let urls = stateHub?["standby_urls"] as? [String], urls != database.hub.standbyUrls {
-            database.hub.standbyUrls = urls
-            changed = true
-        }
-        if changed, message.type == "state" {
-            storeSettings()
-        }
-        guard let state, database.hub.role == "admin", message.bool("pending") != true else {
+        let now = hubNowMs()
+        let mono = hubMonoNow()
+        guard let learned = database.hub.learn(message, book: hub.seenBook, now: now, mono: mono) else {
             return
         }
-        let now = hubNowMs()
-        let noted = HubSeen.note(&hub.seen, state: state, now: now)
-        hub.seen = HubSeen.scoped(hub.seen, setup: database.hub.hubKey + ":" + database.hub.deviceId)
-        hubKeepSeen(changed: noted, now: now)
+        if learned.settings, message.type == "state" {
+            storeSettings()
+        }
+        if let noted = learned.seen {
+            hub.seenBook.keep(changed: noted, now: now, mono: mono)
+        }
     }
 
     func hubHeard() {
@@ -45,31 +21,25 @@ extension Model {
         }
         let now = hubNowMs()
         HubSeen.heard(&hub.seen, now: now)
-        hubKeepSeen(changed: false, now: now)
-    }
-
-    private func hubKeepSeen(changed: Bool, now: Int64) {
-        guard changed || now - hub.seenSavedAt >= 5000 else {
-            return
-        }
-        hub.seenSavedAt = now
-        HubSeenStore.save(hub.seen)
+        hub.seenBook.keep(changed: false, now: now, mono: hubMonoNow())
     }
 
     func hubAskedRemoval(_ device: String) {
+        let now = hubNowMs()
+        let mono = hubMonoNow()
         guard database.hub.role == "admin",
-              HubSeen.askedRemoval(&hub.seen, device: device, now: hubNowMs())
+              HubSeen.askedRemoval(&hub.seen, device: device, now: now, mono: mono)
         else {
             return
         }
-        hubKeepSeen(changed: true, now: hubNowMs())
+        hub.seenBook.keep(changed: true, now: now, mono: mono)
     }
 
     func hubRefusedRemoval(_ device: String) {
         let before = hub.seen
         HubSeen.refusedRemoval(&hub.seen, device: device)
         if hub.seen != before {
-            hubKeepSeen(changed: true, now: hubNowMs())
+            hub.seenBook.keep(changed: true, now: hubNowMs(), mono: hubMonoNow())
         }
     }
 

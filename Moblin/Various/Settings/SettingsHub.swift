@@ -18,6 +18,7 @@ class SettingsHub: Codable, ObservableObject {
     var provenUrl: String = ""
     var ownership: HubOwnership?
     var epoch: Int?
+    var accessFloor: HubAccessFloor?
 
     init() {}
 
@@ -34,6 +35,7 @@ class SettingsHub: Codable, ObservableObject {
         case provenUrl
         case ownership
         case epoch
+        case accessFloor
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -50,6 +52,7 @@ class SettingsHub: Codable, ObservableObject {
         try container.encode(.provenUrl, provenUrl)
         try container.encode(.ownership, ownership)
         try container.encode(.epoch, epoch)
+        try container.encode(.accessFloor, accessFloor)
     }
 
     required init(from decoder: any Decoder) throws {
@@ -66,6 +69,7 @@ class SettingsHub: Codable, ObservableObject {
         provenUrl = container.decode(.provenUrl, String.self, "")
         ownership = container.decode(.ownership, HubOwnership?.self, nil)
         epoch = container.decode(.epoch, Int?.self, nil)
+        accessFloor = container.decode(.accessFloor, HubAccessFloor?.self, nil)
     }
 
     func isJoined() -> Bool {

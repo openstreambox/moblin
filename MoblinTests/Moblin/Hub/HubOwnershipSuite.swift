@@ -56,15 +56,22 @@ struct HubOwnershipSuite {
     }
 
     @Test
-    func stateCannotLowerCounterEvenWithAnAcceptedOwnershipProof() throws {
+    func stateCannotLowerCounterWithinTheSameTakeoverLineage() throws {
         var message = try proof()
         message["type"] = "welcome"
         message["hub"] = try proof()
         message["state"] = ["hub": ["epoch": 1000, "access": ["seq": 40]]]
         #expect(throws: (any Error).self) {
             try hubValidateEvidence(HubMessage(object: message), hubKey: "synthetic-hub-key",
-                                    ownership: nil, epoch: 1000, seen: HubSeen(accessSeq: 50, heardAt: 1000))
+                                    ownership: nil, epoch: 1000, floor: HubAccessFloor(
+                                        seq: 50,
+                                        lineage: 1000
+                                    ))
         }
+        #expect(try hubValidateEvidence(HubMessage(object: message), hubKey: "synthetic-hub-key",
+                                        ownership: nil, epoch: 3,
+                                        floor: HubAccessFloor(seq: 50, lineage: 1)) !=
+                nil)
     }
 
     @Test

@@ -89,11 +89,13 @@ struct HubSeenSuite {
         seen.removed = [
             HubSeenRemoval(device: "old", at: now - 2 * hubSeenRemovedKeepMs),
             HubSeenRemoval(device: "recent", at: now - 1000),
-            HubSeenRemoval(device: "future", at: now + 1000),
+            HubSeenRemoval(device: "skewed", at: now + 1000),
+            HubSeenRemoval(device: "future", at: now + 2 * hubSeenRemovedKeepMs),
         ]
         let restored = try JSONDecoder().decode(HubSeen.self, from: JSONEncoder().encode(seen))
         let removed = HubSeen.hello(restored, now: now)["removed"] as? [[String: Any]]
-        #expect(removed?.compactMap { $0["device"] as? String } == ["recent"])
+        #expect(removed?.compactMap { $0["device"] as? String } == ["recent", "skewed"])
+        #expect(removed?.last?["ago_ms"] as? Int64 == 0)
         #expect(restored.accessSeq == 50)
     }
 
@@ -128,7 +130,7 @@ struct HubSeenSuite {
         seen.devices = ["owner": "Owner"]
         seen.removed = [HubSeenRemoval(device: "old", at: 1000), HubSeenRemoval(device: "recent", at: 2000)]
         HubSeenStore.save(seen, to: file, now: 2000)
-        let restored = try #require(HubSeenStore.load(from: file, now: hubSeenRemovedKeepMs + 1000))
+        let restored = try #require(HubSeenBook(url: file, now: hubSeenRemovedKeepMs + 1000, mono: nil).seen)
         #expect(restored.removed.map(\.device) == ["recent"])
         #expect(restored.accessSeq == 50)
         #expect(restored.devices == seen.devices)

@@ -121,8 +121,12 @@ class HubProvider: ObservableObject {
     @Published var handWait: HubWait = .halfHour
     var accessRefreshTask: Task<Void, Never>?
     var accessRefreshAgain = false
-    var seen: HubSeen? = HubSeenStore.load()
-    var seenSavedAt: Int64 = 0
+    let seenBook = HubSeenBook()
+    var seen: HubSeen? {
+        get { seenBook.seen }
+        set { seenBook.seen = newValue }
+    }
+
     @Published var recheck = false
     @Published var stayedLine: String?
     var stayedTimer: Task<Void, Never>?
@@ -291,7 +295,7 @@ extension Model {
                                                                       hubKey: hubBase64UrlEncode(hubKey),
                                                                       ownership: nil,
                                                                       epoch: nil,
-                                                                      seen: nil
+                                                                      floor: nil
                                                                   )
                                                               })
                 guard HubKeychain.saveDeviceKey(key) else {
@@ -300,8 +304,7 @@ extension Model {
                     return
                 }
                 database.hub = SettingsHub()
-                hub.seen = nil
-                HubSeenStore.delete()
+                hub.seenBook.forget()
                 database.hub.name = name
                 database.hub.urls = link.hub.map(\.absoluteString)
                 database.hub.hubKey = hubBase64UrlEncode(connection.hubKey)
@@ -390,13 +393,16 @@ extension Model {
             return
         }
         let settings = database.hub
-        let setup = settings.hubKey + ":" + settings.deviceId
+        let setup = settings.setup
+        if hub.seenBook.unreadable {
+            hub.seenBook.reload(now: hubNowMs(), mono: hubMonoNow())
+        }
         hub.seen = HubSeen.scoped(hub.seen, setup: setup)
         let urls = hubDialList(proven: settings.provenUrl,
                                join: settings.urls,
                                hub: settings.hubUrls,
                                standby: settings.standbyUrls).compactMap { URL(string: $0) }
-        let hello = settings.role == "admin" ? HubSeen.hello(hub.seen, now: hubNowMs()) : ["v": 1]
+        let hello = settings.hello(seen: hub.seen, now: hubNowMs(), mono: hubMonoNow())
         let proven = settings.provenUrl
         let join = settings.urls
         Task { @MainActor in
@@ -407,13 +413,11 @@ extension Model {
                     hubKey: hubKey,
                     hello: hello,
                     validateWelcome: { message in
-                        _ = try hubValidateEvidence(message, hubKey: settings.hubKey,
-                                                    ownership: settings.ownership, epoch: settings.epoch,
-                                                    seen: self.hub.seen)
+                        _ = try settings.check(message, seen: self.hub.seen)
                     },
                     refusalCounts: { hubRefusalCounts($0.absoluteString, proven: proven, join: join) }
                 )
-                guard isHubJoined(), database.hub.hubKey + ":" + database.hub.deviceId == setup else {
+                guard isHubJoined(), database.hub.setup == setup else {
                     connection.close()
                     return
                 }
@@ -502,9 +506,7 @@ extension Model {
     private func handleHubMessage(_ message: HubMessage) {
         if message.type == "welcome" || message.type == "state" {
             do {
-                _ = try hubValidateEvidence(message, hubKey: database.hub.hubKey,
-                                            ownership: database.hub.ownership, epoch: database.hub.epoch,
-                                            seen: hub.seen)
+                _ = try database.hub.check(message, seen: hub.seen)
             } catch {
                 hub.connection?.close()
                 return
@@ -648,8 +650,7 @@ extension Model {
             reloadRemoteControlStreamer()
         }
         database.hub = SettingsHub()
-        hub.seen = nil
-        HubSeenStore.delete()
+        hub.seenBook.forget()
         hub.recheck = false
         hubClearStayed()
         hub.state = nil

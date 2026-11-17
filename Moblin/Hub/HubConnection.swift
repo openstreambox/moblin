@@ -85,14 +85,6 @@ final class HubConnection {
             let connection = HubConnection(url: url)
             do {
                 try await connection.runConnect(key: key, hubKey: hubKey, hello: hello)
-                if let highest = ((hello["seen"] as? [String: Any])?["access_seq"] as? Int),
-                   let state = connection.welcome.object["state"] as? [String: Any],
-                   let hub = state["hub"] as? [String: Any],
-                   let access = hub["access"] as? [String: Any],
-                   (access["seq"] as? Int ?? -1) < highest
-                {
-                    throw HubConnectionError.invalid("stale access evidence")
-                }
                 guard connection.welcome.type == "welcome" else {
                     throw HubConnectionError.invalid("missing welcome")
                 }

@@ -20,6 +20,7 @@ swiftc -swift-version 6 -parse-as-library \
     "$root/Moblin/Hub/HubProtocol.swift" "$root/Moblin/Hub/HubWords.swift" \
     "$root/Moblin/Hub/HubAccess.swift" "$root/Moblin/Hub/HubCrew.swift" \
     "$root/Moblin/Hub/HubSeen.swift" "$root/Moblin/Hub/HubConnection.swift" "$root/Moblin/Hub/HubOwnership.swift" \
+    "$root/Moblin/Hub/HubEvidence.swift" "$root/Moblin/Various/Settings/SettingsHub.swift" \
     "$here/RegressionSupport.swift" "$here/HubReconnectRegression.swift" -o "$out/reconnect"
 "$out/reconnect" "$out/fixture.json" "$out/seen.json"
 cat "$out/server.log"

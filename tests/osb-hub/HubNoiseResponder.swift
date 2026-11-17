@@ -8,11 +8,11 @@ import Foundation
         let hello = try handshake.readMessage(Data(frame.dropFirst()))
         let reply = try handshake.writeMessage(Data())
         let transport = try handshake.split()
-        let welcome = try transport.seal(Data(CommandLine.arguments[1].utf8))
+        let messages = try CommandLine.arguments.dropFirst().map { try transport.seal(Data($0.utf8)) }
         let result: [String: Any] = try [
             "hello": JSONSerialization.jsonObject(with: hello),
             "reply": reply.base64EncodedString(),
-            "welcome": welcome.base64EncodedString(),
+            "messages": messages.map { $0.base64EncodedString() },
         ]
         try print(String(decoding: JSONSerialization.data(withJSONObject: result), as: UTF8.self))
     }
