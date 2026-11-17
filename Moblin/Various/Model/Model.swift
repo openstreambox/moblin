@@ -2451,6 +2451,7 @@ final class Model: NSObject, ObservableObject {
             reloadDashboard()
         }
         #if DEBUG
+        handleDebugHubShowcase()
         handleDebugHubJoinUrl()
         #endif
         reloadHub()

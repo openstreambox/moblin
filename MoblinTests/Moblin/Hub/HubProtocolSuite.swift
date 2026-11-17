@@ -104,6 +104,10 @@ struct HubProtocolSuite {
         #expect(String(decoding: data, as: UTF8.self) == "{\"generation\":2,\"id\":3,\"type\":\"privacy.show\"}")
     }
 
+    private func status(_ state: HubState?, connected: Bool = true, pending: Bool = false) -> HubStatus {
+        hubStatus(state: state, me: "dev-phone", connected: connected, pending: pending)
+    }
+
     @Test
     func neverSaysNotLiveWhileTheOutputIsLive() {
         let cases: [HubState] = [
@@ -115,13 +119,18 @@ struct HubProtocolSuite {
                   feeds: [feed("dev-phone", "lost")], devices: [pc, phone]),
             state(live: "live", output: "live", program: "dev-pc", feeds: [feed("dev-phone", "lost")],
                   devices: [pc, phone]),
+            state(live: "live", output: "live", program: "dev-pc",
+                  feeds: [feed("dev-pc", "lost"), feed("dev-phone", "checked")], devices: [pc, phone]),
+            state(live: "live", output: "live", program: nil, feeds: [], devices: [pc, phone]),
         ]
         for one in cases {
-            let line = hubStatusLine(state: one, me: "dev-phone", connected: true, pending: false)
-            #expect(line.text.hasPrefix("LIVE"), "\(line.text)")
-            #expect(!line.text.lowercased().contains("not live"))
-            #expect(!line.text.lowercased().contains("offline"))
-            #expect(line.level == .live)
+            let status = status(one)
+            #expect(status.title.hasPrefix("LIVE"), "\(status.title)")
+            for text in [status.text, status.spoken] {
+                #expect(!text.lowercased().contains("not live"))
+                #expect(!text.lowercased().contains("offline"))
+                #expect(!text.lowercased().contains("ended"))
+            }
         }
     }
 
@@ -129,58 +138,138 @@ struct HubProtocolSuite {
     func saysWhatViewersSee() {
         let onPc = state(live: "live", output: "live", program: "dev-pc",
                          feeds: [feed("dev-phone", "checked", links: 2)], devices: [pc, phone])
-        #expect(hubStatusLine(state: onPc, me: "dev-phone", connected: true, pending: false).text
-            == "LIVE · viewers see Mac · Phone connected · 2 links · picture checked")
+        #expect(status(onPc).kind == .live)
+        #expect(status(onPc).title == "LIVE on Mac")
+        #expect(status(onPc).line == "Viewers see Mac.")
+        #expect(status(onPc).phone == "This phone connected · picture checked · 2 links · viewers still see Mac")
+        #expect(status(onPc).text == "LIVE on Mac · this phone connected · 2 links")
         let onPhone = state(live: "live", output: "live", program: "dev-phone",
                             feeds: [feed("dev-phone", "checked", links: 3)], devices: [pc, phone])
-        #expect(hubStatusLine(state: onPhone, me: "dev-phone", connected: true, pending: false).text
-            == "LIVE · viewers see this phone · 3 links")
+        #expect(status(onPhone).text == "LIVE on this phone · 3 links")
+        #expect(status(onPhone).line == "Viewers see this phone.")
         let hidden = state(live: "live", output: "live", program: "dev-phone", hidden: true, generation: 1,
                            feeds: [feed("dev-phone", "checked")], devices: [pc, phone])
-        #expect(hubStatusLine(state: hidden, me: "dev-phone", connected: true, pending: false).text
-            == "LIVE · privacy screen on · viewers don't see you")
+        #expect(status(hidden).kind == .hidden)
+        #expect(status(hidden).title == "LIVE · privacy screen on")
+        #expect(status(hidden).line == "Your privacy screen is on. Viewers don't see you.")
+        let standby = state(live: "live", output: "live", program: "dev-pc",
+                            feeds: [feed("dev-pc", "lost"), feed("dev-phone", "checked")], devices: [pc, phone])
+        #expect(status(standby).kind == .caution)
+        #expect(status(standby).title == "LIVE · standby picture")
+        #expect(status(standby).line == "The feed from Mac stalled. Viewers see the standby picture.")
     }
 
     @Test
-    func beforeGoLiveTheLineIsAboutConnecting() {
+    func beforeGoLiveTheStatusIsAboutConnecting() {
         let ready = state(feeds: [feed("dev-phone", "listening")], devices: [phone])
-        #expect(hubStatusLine(state: ready, me: "dev-phone", connected: true, pending: false).text
-            == "Ready to connect")
+        #expect(status(ready).text == "Ready to connect")
+        #expect(status(ready).kind == .ready)
         let checking = state(feeds: [feed("dev-phone", "receiving", links: nil, black: nil)], devices: [phone])
-        #expect(hubStatusLine(state: checking, me: "dev-phone", connected: true, pending: false).text
-            == "Connecting to the hub · checking the picture")
+        #expect(status(checking).title == "Connecting to the hub")
+        #expect(status(checking).line == "Checking the picture.")
         let dark = state(feeds: [feed("dev-phone", "receiving", links: nil, black: true)], devices: [phone])
-        #expect(hubStatusLine(state: dark, me: "dev-phone", connected: true, pending: false).text
-            == "Connecting to the hub · the hub sees a black picture")
+        #expect(status(dark).line == "The hub sees a black picture.")
         let checked = state(feeds: [feed("dev-phone", "checked", links: 1)], devices: [phone])
-        let line = hubStatusLine(state: checked, me: "dev-phone", connected: true, pending: false)
-        #expect(line.text == "Phone connected · 1 link · picture checked")
-        #expect(!line.text.contains("LIVE"))
-        #expect(line.level == .good)
+        #expect(status(checked).text == "Connected · picture checked · 1 link")
+        #expect(!status(checked).spoken.contains("LIVE"))
+        #expect(!status(checked).spoken.lowercased().contains("live"))
+        #expect(status(checked).kind == .connected)
     }
 
     @Test
     func aLostConnectionSaysCantSay() {
         let live = state(live: "live", output: "live", program: "dev-phone", devices: [phone])
-        let line = hubStatusLine(state: live, me: "dev-phone", connected: false, pending: false)
-        #expect(line.text.contains("can't say"))
-        #expect(!line.text.lowercased().contains("not live"))
-        #expect(hubStatusLine(state: nil, me: nil, connected: true, pending: true).text
-            == "Waiting for an admin to allow this phone")
+        let lost = status(live, connected: false)
+        #expect(lost.kind == .unknown)
+        #expect(lost.title == "Can't say right now")
+        #expect(!lost.spoken.lowercased().contains("not live"))
+        #expect(status(nil, pending: true).title == "Waiting for Allow")
+    }
+
+    @Test
+    func streamEndedOnlyAfterEnd() {
+        let ended = state(live: "ended", feeds: [feed("dev-phone", "listening")], devices: [phone])
+        #expect(status(ended).text == "Stream ended · Not sending yet")
+        let ready = state(feeds: [feed("dev-phone", "listening")], devices: [phone])
+        #expect(!status(ready).spoken.contains("ended"))
+    }
+
+    @Test
+    func listsOnlyReportedMeasurements() {
+        #expect(hubFacts(nil) == [])
+        #expect(hubFacts(feed("dev-phone", "receiving")) == [])
+        let measured = HubFeed(device: "dev-phone", state: "checked",
+                               picture: HubPicture(width: 1280, height: 720, fps: 29.97),
+                               black: false, sound: "silent", srtlaLinks: nil)
+        // Labels and words follow the app's language; the values don't.
+        let facts = hubFacts(measured)
+        #expect(facts.count == 2)
+        #expect(facts.first?.value == "1280×720 · 30 fps")
+        #expect(hubFacts(feed("dev-phone", "checked", links: 2)).map(\.value) == ["2"])
+    }
+
+    private func controls(_ state: HubState,
+                          role: String = "member",
+                          sending: Bool = false,
+                          requested: Set<HubRequestKind> = []) -> HubControls
+    {
+        hubControls(state: state, me: "dev-phone", role: role, sending: sending, requested: requested)
     }
 
     @Test
     func offersOnlyWhatTheHubAllows() {
         let ready = state(feeds: [feed("dev-phone", "listening")], devices: [phone])
-        #expect(hubActions(state: ready, me: "dev-phone", role: "member") == [.hide, .connect])
+        #expect(controls(ready) == HubControls(feed: .connect, move: nil, privacy: .hide))
         let checkedNotLive = state(feeds: [feed("dev-phone", "checked")], devices: [phone])
-        #expect(hubActions(state: checkedNotLive, me: "dev-phone", role: "member") == [.hide])
+        #expect(controls(checkedNotLive) == HubControls(feed: .connected, move: nil, privacy: .hide))
         let live = state(live: "live", output: "live", program: "dev-pc",
                          feeds: [feed("dev-phone", "checked")], devices: [pc, phone])
-        #expect(hubActions(state: live, me: "dev-phone", role: "member") == [.hide, .moveHere])
+        #expect(controls(live) == HubControls(feed: .connected, move: .offer, privacy: .hide))
+        let liveNotConnected = state(live: "live", output: "live", program: "dev-pc",
+                                     feeds: [feed("dev-phone", "listening")], devices: [pc, phone])
+        #expect(controls(liveNotConnected).move == nil)
         let hidden = state(live: "live", output: "live", program: "dev-phone", hidden: true, generation: 4,
                            feeds: [feed("dev-phone", "checked")], devices: [phone])
-        #expect(hubActions(state: hidden, me: "dev-phone", role: "member") == [.showPicture(generation: 4)])
-        #expect(hubActions(state: hidden, me: "dev-phone", role: "helper") == [])
+        #expect(controls(hidden).privacy == .hidden(generation: 4, canShow: true))
+        #expect(controls(hidden, role: "helper").privacy == .hidden(generation: 4, canShow: false))
+        #expect(controls(hidden).move == .onAir)
+        #expect(hubControls(state: nil, me: "dev-phone", role: "member", sending: false, requested: []) == .none)
+    }
+
+    @Test
+    func aRequestReadsAsUnconfirmedUntilTheHubShowsIt() {
+        let live = state(live: "live", output: "live", program: "dev-pc",
+                         feeds: [feed("dev-phone", "checked")], devices: [pc, phone])
+        let all: Set<HubRequestKind> = [.move, .hide]
+        #expect(controls(live, requested: all).move == .requested)
+        #expect(controls(live, requested: all).privacy == .hideRequested)
+        #expect(hubOpenRequests(all, state: live, me: "dev-phone") == all)
+        let moved = state(live: "live", output: "live", program: "dev-phone",
+                          feeds: [feed("dev-phone", "checked")], devices: [pc, phone])
+        #expect(hubOpenRequests(all, state: moved, me: "dev-phone") == [.hide])
+        #expect(controls(moved, requested: [.hide]).move == .onAir)
+        let hidden = state(live: "live", output: "live", program: "dev-phone", hidden: true, generation: 5,
+                           feeds: [feed("dev-phone", "checked")], devices: [pc, phone])
+        #expect(hubOpenRequests([.hide], state: hidden, me: "dev-phone") == [])
+        #expect(controls(hidden, requested: [.show]).privacy == .showRequested)
+        #expect(hubOpenRequests([.show], state: hidden, me: "dev-phone") == [.show])
+        #expect(hubOpenRequests([.show], state: moved, me: "dev-phone") == [])
+        // Without a state nothing is taken as confirmed.
+        #expect(hubOpenRequests(all, state: nil, me: "dev-phone") == all)
+    }
+
+    @Test
+    func connectAndDisconnectFollowTheHubsFeedReport() {
+        let listening = state(feeds: [feed("dev-phone", "listening")], devices: [phone])
+        #expect(controls(listening, sending: true).feed == .connecting)
+        #expect(controls(listening, requested: [.connect]).feed == .connecting)
+        let receiving = state(feeds: [feed("dev-phone", "receiving")], devices: [phone])
+        #expect(controls(receiving, sending: true).feed == .connecting)
+        #expect(hubOpenRequests([.connect], state: receiving, me: "dev-phone") == [.connect])
+        let checked = state(feeds: [feed("dev-phone", "checked")], devices: [phone])
+        #expect(hubOpenRequests([.connect], state: checked, me: "dev-phone") == [])
+        #expect(controls(checked, requested: [.disconnect]).feed == .disconnecting)
+        #expect(hubOpenRequests([.disconnect], state: checked, me: "dev-phone") == [.disconnect])
+        #expect(hubOpenRequests([.disconnect], state: listening, me: "dev-phone") == [])
     }
 }

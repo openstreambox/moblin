@@ -123,7 +123,7 @@ struct SettingsView: View {
                     Label("Backpack", systemImage: "backpack")
                 }
                 NavigationLink {
-                    HubPanelView(model: model, hub: model.hub, settings: database.hub)
+                    HubPanelView(model: model, hub: model.hub)
                 } label: {
                     Label("Rig", systemImage: "point.3.connected.trianglepath.dotted")
                 }
