@@ -1356,6 +1356,35 @@ struct AudioMixerSuite {
         try #require(output.end >= frames.upperBound)
         #expect(zip(output.samples(0, frames), expected).allSatisfy { abs($0 - $1) < 1e-4 })
     }
+
+    @Test
+    func measuresSourcePeaksBeforeGainAndMute() {
+        let mixer = TestAudioMixer()
+        let builtinFormat = createFormat(.pcmFormatFloat32, 2, false)
+        let bufferedFormat = createFormat(.pcmFormatInt16, 2, true)
+        mixer.setSources([
+            createSettings(id: "builtin", gain: 0.25),
+            createSettings(id: "muted", bufferedAudio: cameraId, gain: 0),
+        ])
+        for tick in 0 ..< 40 {
+            mixer.appendBuiltin(
+                createSampleBuffer(builtinFormat, tick) { channel, _ in channel == 0 ? 0.5 : -0.25 },
+                createTime(tick)
+            )
+            mixer.appendBuffered(
+                cameraId: cameraId,
+                createSampleBuffer(bufferedFormat, tick) { _, _ in 0.75 }
+            )
+            while mixer.renderNextBlock(now: createTime(tick + 1)) != nil {}
+        }
+        var levels = mixer.takeLevels()
+        #expect(levels.sources == ["builtin": 0.5, "muted": 0.75])
+        #expect(levels.left == 0.125)
+        #expect(levels.right == 0.0625)
+        levels = mixer.takeLevels()
+        #expect(levels.sources == ["builtin": 0, "muted": 0])
+        #expect(levels.left == 0)
+    }
 }
 
 private final class Output {
@@ -1502,6 +1531,10 @@ private final class TestAudioMixer {
 
     func setMasterGain(_ gain: Float) {
         mixer.setMasterGain(gain)
+    }
+
+    func takeLevels() -> AudioMixerLevels {
+        mixer.takeLevels()
     }
 
     func setMasterMuted(_ muted: Bool) {

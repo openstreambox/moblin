@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 func isAudioMicMixable(mic: SettingsMicsMic, current: SettingsMicsMic) -> Bool {
     guard mic != current else {
@@ -82,6 +83,46 @@ private func makeAudioMixerSends(output: SettingsMicsMicOutput) -> (stream: Floa
         (1, 0)
     case .recording:
         (0, 1)
+    }
+}
+
+@MainActor
+class AudioMixerLimiter: ObservableObject {
+    @Published var reduction: Float = 0
+}
+
+@MainActor
+class AudioMixerMeters {
+    let left = AudioLevel()
+    let right = AudioLevel()
+    let limiter = AudioMixerLimiter()
+    private var sources: [String: AudioLevel] = [:]
+
+    func source(id: String) -> AudioLevel {
+        if let level = sources[id] {
+            return level
+        }
+        let level = AudioLevel()
+        sources[id] = level
+        return level
+    }
+
+    func update(levels: AudioMixerLevels) {
+        for (id, level) in sources {
+            setLevel(level, peak: levels.sources[id] ?? 0)
+        }
+        for (id, peak) in levels.sources where sources[id] == nil {
+            setLevel(source(id: id), peak: peak)
+        }
+        setLevel(left, peak: levels.left)
+        setLevel(right, peak: levels.right)
+    }
+
+    private func setLevel(_ level: AudioLevel, peak: Float) {
+        let newLevel = peak > 0 ? 20 * log10(peak) : defaultAudioLevel
+        if level.level != newLevel {
+            level.level = newLevel
+        }
     }
 }
 
