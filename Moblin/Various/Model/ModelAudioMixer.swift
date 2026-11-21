@@ -144,10 +144,6 @@ extension Model {
         }
     }
 
-    func isMicMixable(mic: SettingsMicsMic) -> Bool {
-        database.debug.audioMixer && isAudioMicMixable(mic: mic, current: self.mic.current)
-    }
-
     func setMicMixed(mic: SettingsMicsMic, mixed: Bool) {
         if mixed {
             mic.gainDb = makeMixedMicGainDb(mic: mic)
