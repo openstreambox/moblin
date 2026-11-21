@@ -99,6 +99,11 @@ struct AudioSettingsView: View {
                         } label: {
                             Text("Outputs")
                         }
+                        NavigationLink {
+                            FindMicSettingsView(model: model, findMic: model.findMic)
+                        } label: {
+                            Text("Find mic")
+                        }
                     }
                 }
             }
