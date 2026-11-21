@@ -70,6 +70,10 @@ func makeMicDelayRange(audioMixer: Bool) -> ClosedRange<Double> {
     audioMixer ? -0.5 ... 2.0 : -0.5 ... 0.5
 }
 
+func makeAudioMixerSourceGain(mic: SettingsMicsMic) -> Float {
+    mic.muted ? 0 : pow(10, mic.gainDb / 20)
+}
+
 private func makeAudioMixerSends(output: SettingsMicsMicOutput) -> (stream: Float, recording: Float) {
     switch output {
     case .streamAndRecording:
@@ -119,6 +123,11 @@ extension Model {
         }
     }
 
+    func setMicMuted(mic: SettingsMicsMic, muted: Bool) {
+        mic.muted = muted
+        updateMixedMics()
+    }
+
     func updateMixedMics() {
         guard database.debug.audioMixer else {
             return
@@ -144,7 +153,7 @@ extension Model {
                                         bufferedAudio: bufferedAudio,
                                         channelsMap: makeAudioInputChannelsMap(),
                                         channel: mic.channel,
-                                        gain: pow(10, mic.gainDb / 20),
+                                        gain: makeAudioMixerSourceGain(mic: mic),
                                         delay: mic.delay.clamped(to: makeMicDelayRange(audioMixer: true)),
                                         voice: mic.processing == .voice,
                                         sends: makeAudioMixerSends(output: mic.output),

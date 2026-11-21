@@ -193,6 +193,18 @@ struct SettingsSuite {
         #expect(decoded.output == .streamAndRecording)
     }
 
+    @Test
+    func micMuted() throws {
+        let mic = SettingsMicsMic()
+        var decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: JSONEncoder().encode(mic))
+        #expect(!decoded.muted)
+        mic.muted = true
+        decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: JSONEncoder().encode(mic))
+        #expect(decoded.muted)
+        decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: Data("{}".utf8))
+        #expect(!decoded.muted)
+    }
+
     @Test(arguments: [
         MicIdCase(channel: nil, id: "AppleUSBAudioEngine:1 0"),
         MicIdCase(channel: 2, id: "AppleUSBAudioEngine:1 0 2"),

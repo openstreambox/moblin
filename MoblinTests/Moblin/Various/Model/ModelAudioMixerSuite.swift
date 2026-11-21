@@ -192,4 +192,16 @@ struct ModelAudioMixerSuite {
             == ["Wireless microphone 1", "Wireless microphone 2"])
         #expect(makeNames(["Mic", "Mic"]) == ["Wireless microphone 1", "Wireless microphone 2"])
     }
+
+    @Test
+    func mutedMicHasNoGain() {
+        let mic = SettingsMicsMic(name: "Mic", inputUid: "Mic", connected: true)
+        mic.gainDb = -6
+        #expect(abs(makeAudioMixerSourceGain(mic: mic) - 0.501) < 0.001)
+        mic.muted = true
+        #expect(makeAudioMixerSourceGain(mic: mic) == 0)
+        mic.gainDb = 0
+        mic.muted = false
+        #expect(makeAudioMixerSourceGain(mic: mic) == 1)
+    }
 }

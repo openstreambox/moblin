@@ -68,6 +68,7 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
     @Published var mixed: Bool = false
     @Published var processing: SettingsMicsMicProcessing = .none
     @Published var output: SettingsMicsMicOutput = .streamAndRecording
+    @Published var muted: Bool = false
 
     func isAudioSession() -> Bool {
         isBuiltin() || isExternal()
@@ -163,6 +164,7 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
         case processing
         case output
         case pan
+        case muted
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -178,6 +180,7 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
         try container.encode(.processing, processing)
         try container.encode(.output, output)
         try container.encode(.pan, pan)
+        try container.encode(.muted, muted)
     }
 
     init() {}
@@ -201,6 +204,7 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
         processing = container.decode(.processing, SettingsMicsMicProcessing.self, .none)
         output = container.decode(.output, SettingsMicsMicOutput.self, .streamAndRecording)
         pan = container.decode(.pan, Float.self, 0.0)
+        muted = container.decode(.muted, Bool.self, false)
     }
 }
 
