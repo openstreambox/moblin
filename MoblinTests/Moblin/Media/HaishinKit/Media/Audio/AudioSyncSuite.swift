@@ -26,7 +26,6 @@ private struct Noise {
     }
 }
 
-// The sync chirp evaluated at any position, so that fractional delays are exact.
 private func createChirp(_ position: Double, up: Bool, maximumFrequency: Double) -> Float {
     let last = chirpFrames - 1
     guard position >= 0, position <= last else {
@@ -80,7 +79,6 @@ private func createWindow(_ bursts: [Burst], noise: Float = 0, seed: UInt64 = 1)
     return samples
 }
 
-// White noise level for an in-band (1 to 6 kHz) SNR against the chirp at full level.
 private func createNoiseLevel(snr: Double) -> Float {
     let chirpPower = 0.7 * 0.7 / 2
     let inBandFraction = 5000 / (sampleRate / 2)
