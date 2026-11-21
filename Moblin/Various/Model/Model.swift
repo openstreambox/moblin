@@ -44,6 +44,7 @@ enum ShowingPanel {
     case live
     case macros
     case soundBoard
+    case mixer
 
     func buttonsBackgroundColor() -> Color {
         if self == .chat {
@@ -958,6 +959,7 @@ final class Model: NSObject, ObservableObject {
             .luts,
             .chat,
             .mic,
+            .mixer,
             .bitrate,
             .stream,
             .obs,

@@ -1930,6 +1930,10 @@ private func addMissingQuickButtonsPageOne(database: Database) {
                                  imageOn: "music.mic",
                                  page: page)
     updateQuickButton(database: database, button: button)
+    button = SettingsQuickButton(type: .mixer,
+                                 imageOn: "slider.vertical.3",
+                                 page: page)
+    updateQuickButton(database: database, button: button)
     button = SettingsQuickButton(type: .record,
                                  imageOn: "record.circle.fill",
                                  imageOff: "record.circle",
