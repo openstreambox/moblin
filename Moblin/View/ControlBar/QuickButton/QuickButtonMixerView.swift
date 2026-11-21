@@ -29,21 +29,16 @@ private struct MixerMeterView: View {
             let yellow = mixerMeterFraction(min(level.level, redThresholdDb))
             let red = mixerMeterFraction(level.level)
             HStack(spacing: 0) {
-                if level.level > clippingThresholdDb {
-                    Rectangle()
-                        .foregroundStyle(.red)
-                } else {
-                    Rectangle()
-                        .frame(width: green * width)
-                        .foregroundStyle(.green)
-                    Rectangle()
-                        .frame(width: (yellow - green) * width)
-                        .foregroundStyle(.yellow)
-                    Rectangle()
-                        .frame(width: (red - yellow) * width)
-                        .foregroundStyle(.red)
-                    Spacer(minLength: 0)
-                }
+                Rectangle()
+                    .frame(width: green * width)
+                    .foregroundStyle(.green)
+                Rectangle()
+                    .frame(width: (yellow - green) * width)
+                    .foregroundStyle(.yellow)
+                Rectangle()
+                    .frame(width: (red - yellow) * width)
+                    .foregroundStyle(.red)
+                Spacer(minLength: 0)
             }
             .background(Color(UIColor.tertiarySystemFill))
         }
@@ -96,13 +91,18 @@ private struct MixerSourceHeaderView: View {
                 HStack {
                     Text(mic.name)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                     Spacer()
-                    if mic.muted {
+                    if mic.muted, expanded != true {
                         Text("Muted")
                             .foregroundStyle(.red)
+                            .lineLimit(1)
+                            .fixedSize()
                     } else {
                         Text("\(formatOneDecimal(mic.gainDb)) dB")
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .fixedSize()
                     }
                     if let expanded {
                         Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -110,6 +110,7 @@ private struct MixerSourceHeaderView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .font(.callout)
                 HStack {
                     MixerMeterView(level: model.audioMixerMeters.source(id: mic.id), dimmed: mic.muted)
                     if main {
@@ -154,7 +155,7 @@ private struct MixerSourceView: View {
                         Label("Mute", systemImage: "speaker.slash")
                     }
                 }
-                .tint(.red)
+                .tint(mic.muted ? .blue : .red)
             }
     }
 }
@@ -170,6 +171,8 @@ private struct MixerSourceGainView: View {
                 model.setMicMuted(mic: mic, muted: !mic.muted)
             } label: {
                 MixerMuteImageView(muted: mic.muted, image: "speaker.wave.2.fill")
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .accessibilityLabel(mic.muted ? Text("Unmute") : Text("Mute"))
@@ -187,6 +190,8 @@ private struct MixerSourceGainView: View {
                         Circle()
                             .foregroundStyle(Color(UIColor.tertiarySystemFill))
                     }
+                    .frame(width: 44, height: 44)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.borderless)
             .accessibilityLabel("Settings")
@@ -333,13 +338,19 @@ private struct MixerAddSourceView: View {
     @ObservedObject var mics: SettingsMics
     let current: SettingsMicsMic
 
+    private func isAddable(_ mic: SettingsMicsMic) -> Bool {
+        mic.connected && !mic.mixed && isAudioMicMixable(mic: mic, current: current)
+    }
+
     var body: some View {
-        Menu {
-            ForEach(mics.mics) { mic in
-                MixerAddSourceButtonView(model: model, mic: mic, current: current)
+        if mics.mics.contains(where: isAddable) {
+            Menu {
+                ForEach(mics.mics) { mic in
+                    MixerAddSourceButtonView(model: model, mic: mic, current: current)
+                }
+            } label: {
+                Label("Add source", systemImage: "plus")
             }
-        } label: {
-            Label("Add source", systemImage: "plus")
         }
     }
 }
@@ -347,6 +358,7 @@ private struct MixerAddSourceView: View {
 private struct MixerOutputView: View {
     let meters: AudioMixerMeters
     @ObservedObject var audio: SettingsAudio
+    @ObservedObject var provider: AudioProvider
     @ObservedObject var limiter: AudioMixerLimiter
     let expanded: Bool
     let toggleExpanded: () -> Void
@@ -355,7 +367,14 @@ private struct MixerOutputView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Output gain")
-                if limiter.reduction > 0 {
+                    .lineLimit(1)
+                if provider.muted {
+                    Text("Muted")
+                        .font(.caption)
+                        .bold()
+                        .foregroundStyle(.red)
+                        .fixedSize()
+                } else {
                     HStack(spacing: 3) {
                         Text("Limiter")
                         Text("\(formatOneDecimal(-limiter.reduction)) dB")
@@ -363,10 +382,14 @@ private struct MixerOutputView: View {
                     .font(.caption)
                     .bold()
                     .foregroundStyle(.orange)
+                    .fixedSize()
+                    .opacity(limiter.reduction > 0 ? 1 : 0)
                 }
-                Spacer()
+                Spacer(minLength: 0)
                 Text("\(formatOneDecimal(audio.gainDb)) dB")
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .fixedSize()
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -402,8 +425,27 @@ struct QuickButtonMixerView: View {
     @State private var settingsMic: SettingsMicsMic?
     @State private var presentingSettings = false
 
-    private func toggleExpanded(id: String) {
+    private func toggleExpanded(id: String, proxy: ScrollViewProxy) {
         expandedId = expandedId == id ? nil : id
+        outputExpanded = false
+        scrollTo(expandedId, proxy: proxy)
+    }
+
+    private func toggleOutputExpanded(proxy: ScrollViewProxy) {
+        outputExpanded.toggle()
+        expandedId = nil
+        scrollTo(outputExpanded ? "output" : nil, proxy: proxy)
+    }
+
+    private func scrollTo(_ id: String?, proxy: ScrollViewProxy) {
+        guard let id else {
+            return
+        }
+        DispatchQueue.main.async {
+            withAnimation {
+                proxy.scrollTo("\(id) gain")
+            }
+        }
     }
 
     private func showSettings(mic: SettingsMicsMic) {
@@ -413,36 +455,47 @@ struct QuickButtonMixerView: View {
 
     var body: some View {
         let current = model.getMicById(id: modelMic.current.id) ?? modelMic.current
-        Form {
-            Section {
-                ForEach([current] + modelMic.mixed) { mic in
-                    MixerSourceView(model: model,
-                                    mic: mic,
-                                    main: mic == current,
-                                    expanded: expandedId == mic.id,
-                                    toggleExpanded: { toggleExpanded(id: mic.id) },
-                                    showSettings: { showSettings(mic: mic) })
-                    if expandedId == mic.id {
-                        MixerSourceGainView(model: model, mic: mic) {
-                            showSettings(mic: mic)
+        let sources = [current] + modelMic.mixed
+        ScrollViewReader { proxy in
+            Form {
+                Section {
+                    ForEach(sources) { mic in
+                        MixerSourceView(model: model,
+                                        mic: mic,
+                                        main: mic == current,
+                                        expanded: expandedId == mic.id,
+                                        toggleExpanded: { toggleExpanded(id: mic.id, proxy: proxy) },
+                                        showSettings: { showSettings(mic: mic) })
+                        if expandedId == mic.id {
+                            MixerSourceGainView(model: model, mic: mic) {
+                                showSettings(mic: mic)
+                            }
+                            .id("\(mic.id) gain")
                         }
                     }
+                    MixerAddSourceView(model: model, mics: mics, current: current)
+                    MixerSyncLinkView(model: model)
+                } footer: {
+                    Text("Tap for gain. Swipe for mute or settings.")
                 }
-                MixerAddSourceView(model: model, mics: mics, current: current)
-                MixerSyncLinkView(model: model)
-            } footer: {
-                Text("Tap for gain. Swipe for mute or settings.")
+                Section {
+                    MixerOutputView(meters: model.audioMixerMeters,
+                                    audio: model.database.audio,
+                                    provider: model.audio,
+                                    limiter: model.audioMixerMeters.limiter,
+                                    expanded: outputExpanded)
+                    {
+                        toggleOutputExpanded(proxy: proxy)
+                    }
+                    if outputExpanded {
+                        MixerOutputGainView(model: model, audio: model.database.audio)
+                            .id("output gain")
+                    }
+                }
             }
-            Section {
-                MixerOutputView(meters: model.audioMixerMeters,
-                                audio: model.database.audio,
-                                limiter: model.audioMixerMeters.limiter,
-                                expanded: outputExpanded)
-                {
-                    outputExpanded.toggle()
-                }
-                if outputExpanded {
-                    MixerOutputGainView(model: model, audio: model.database.audio)
+            .onChange(of: sources.map(\.id)) { ids in
+                if let expandedId, !ids.contains(expandedId) {
+                    self.expandedId = nil
                 }
             }
         }
