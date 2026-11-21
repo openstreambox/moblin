@@ -83,12 +83,11 @@ private struct MixerMuteImageView: View {
     }
 }
 
-private struct MixerSourceView: View {
+private struct MixerSourceHeaderView: View {
     let model: Model
     @ObservedObject var mic: SettingsMicsMic
     let main: Bool
-    let expanded: Bool
-    let toggleExpanded: () -> Void
+    var expanded: Bool?
 
     var body: some View {
         HStack {
@@ -105,9 +104,11 @@ private struct MixerSourceView: View {
                         Text("\(formatOneDecimal(mic.gainDb)) dB")
                             .foregroundStyle(.secondary)
                     }
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    if let expanded {
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 HStack {
                     MixerMeterView(level: model.audioMixerMeters.source(id: mic.id), dimmed: mic.muted)
@@ -120,28 +121,48 @@ private struct MixerSourceView: View {
                 }
             }
         }
-        .contentShape(Rectangle())
-        .onTapGesture {
-            toggleExpanded()
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button {
-                model.setMicMuted(mic: mic, muted: !mic.muted)
-            } label: {
-                if mic.muted {
-                    Label("Unmute", systemImage: "speaker.wave.2")
-                } else {
-                    Label("Mute", systemImage: "speaker.slash")
-                }
+    }
+}
+
+private struct MixerSourceView: View {
+    let model: Model
+    @ObservedObject var mic: SettingsMicsMic
+    let main: Bool
+    let expanded: Bool
+    let toggleExpanded: () -> Void
+    let showSettings: () -> Void
+
+    var body: some View {
+        MixerSourceHeaderView(model: model, mic: mic, main: main, expanded: expanded)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                toggleExpanded()
             }
-            .tint(.red)
-        }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button {
+                    showSettings()
+                } label: {
+                    Label("Settings", systemImage: "gearshape")
+                }
+                .tint(.gray)
+                Button {
+                    model.setMicMuted(mic: mic, muted: !mic.muted)
+                } label: {
+                    if mic.muted {
+                        Label("Unmute", systemImage: "speaker.wave.2")
+                    } else {
+                        Label("Mute", systemImage: "speaker.slash")
+                    }
+                }
+                .tint(.red)
+            }
     }
 }
 
 private struct MixerSourceGainView: View {
     let model: Model
     @ObservedObject var mic: SettingsMicsMic
+    let showSettings: () -> Void
 
     var body: some View {
         HStack {
@@ -156,7 +177,106 @@ private struct MixerSourceGainView: View {
                 .onChange(of: mic.gainDb) { _ in
                     model.updateAudioGain()
                 }
+            Button {
+                showSettings()
+            } label: {
+                Image(systemName: "gearshape")
+                    .frame(width: mixerIconSize, height: mixerIconSize)
+                    .foregroundStyle(.primary)
+                    .background {
+                        Circle()
+                            .foregroundStyle(Color(UIColor.tertiarySystemFill))
+                    }
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Settings")
         }
+    }
+}
+
+private struct MixerSourceDelayView: View {
+    let model: Model
+    @ObservedObject var mic: SettingsMicsMic
+
+    var body: some View {
+        let range = makeMicDelayRange(audioMixer: true)
+        HStack {
+            Text("Delay")
+            Slider(
+                value: Binding(get: { mic.delay.clamped(to: range) }, set: { mic.delay = $0 }),
+                in: range,
+                step: 0.01,
+                onEditingChanged: { begin in
+                    guard !begin else {
+                        return
+                    }
+                    model.updateMicDelay()
+                }
+            )
+            Text("\(formatThreeDecimals(mic.delay.clamped(to: range))) s")
+                .frame(width: 70)
+        }
+    }
+}
+
+private struct MixerSourceSettingsView: View {
+    let model: Model
+    @ObservedObject var mic: SettingsMicsMic
+    @ObservedObject var modelMic: Mic
+    @Environment(\.dismiss) var dismiss
+
+    var body: some View {
+        let main = mic == modelMic.current
+        Form {
+            Section {
+                MixerSourceHeaderView(model: model, mic: mic, main: main)
+            }
+            Section {
+                Picker("Processing", selection: $mic.processing) {
+                    ForEach(SettingsMicsMicProcessing.allCases, id: \.self) {
+                        Text($0.toString())
+                    }
+                }
+                .onChange(of: mic.processing) { _ in
+                    model.updateMixedMics()
+                }
+            } footer: {
+                Text("Voice removes rumble and evens out the level of speech.")
+            }
+            // Pan goes here.
+            Section {
+                MixerSourceDelayView(model: model, mic: mic)
+            } footer: {
+                Text("A positive delay makes the audio later, a negative delay earlier.")
+            }
+            Section {
+                Picker("Output", selection: $mic.output) {
+                    ForEach(SettingsMicsMicOutput.allCases, id: \.self) {
+                        Text($0.toString())
+                    }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                .onChange(of: mic.output) { _ in
+                    model.updateMixedMics()
+                }
+            } header: {
+                Text("Output")
+            }
+            if !main {
+                Section {
+                    Button(role: .destructive) {
+                        model.setMicMixed(mic: mic, mixed: false)
+                        dismiss()
+                    } label: {
+                        HCenter {
+                            Text("Remove from mix")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(mic.name)
     }
 }
 
@@ -245,9 +365,16 @@ struct QuickButtonMixerView: View {
     @ObservedObject var modelMic: Mic
     @State private var expandedId: String?
     @State private var outputExpanded = false
+    @State private var settingsMic: SettingsMicsMic?
+    @State private var presentingSettings = false
 
     private func toggleExpanded(id: String) {
         expandedId = expandedId == id ? nil : id
+    }
+
+    private func showSettings(mic: SettingsMicsMic) {
+        settingsMic = mic
+        presentingSettings = true
     }
 
     var body: some View {
@@ -258,15 +385,18 @@ struct QuickButtonMixerView: View {
                     MixerSourceView(model: model,
                                     mic: mic,
                                     main: mic == current,
-                                    expanded: expandedId == mic.id)
-                    {
-                        toggleExpanded(id: mic.id)
-                    }
+                                    expanded: expandedId == mic.id,
+                                    toggleExpanded: { toggleExpanded(id: mic.id) },
+                                    showSettings: { showSettings(mic: mic) })
                     if expandedId == mic.id {
-                        MixerSourceGainView(model: model, mic: mic)
+                        MixerSourceGainView(model: model, mic: mic) {
+                            showSettings(mic: mic)
+                        }
                     }
                 }
                 MixerAddSourceView(model: model, mics: mics, current: current)
+            } footer: {
+                Text("Tap for gain. Swipe for mute or settings.")
             }
             Section {
                 MixerOutputView(meters: model.audioMixerMeters,
@@ -282,5 +412,10 @@ struct QuickButtonMixerView: View {
             }
         }
         .navigationTitle("Mixer")
+        .navigationDestination(isPresented: $presentingSettings) {
+            if let settingsMic {
+                MixerSourceSettingsView(model: model, mic: settingsMic, modelMic: modelMic)
+            }
+        }
     }
 }
