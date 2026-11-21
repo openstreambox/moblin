@@ -36,9 +36,9 @@ enum SettingsMicsMicOutput: String, Codable, CaseIterable {
         case .streamAndRecording:
             String(localized: "Stream and recording")
         case .stream:
-            String(localized: "Stream")
+            String(localized: "Stream only")
         case .recording:
-            String(localized: "Recording")
+            String(localized: "Recording only")
         }
     }
 }

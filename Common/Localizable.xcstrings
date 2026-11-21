@@ -211214,6 +211214,9 @@
         }
       }
     },
+    "Recording only" : {
+
+    },
     "Recording path" : {
       "localizations" : {
         "de" : {
@@ -268903,6 +268906,9 @@
           }
         }
       }
+    },
+    "Stream only" : {
+
     },
     "Stream settings" : {
       "comment" : "A section of a GoPro device settings view that allows the user to configure the stream.",
