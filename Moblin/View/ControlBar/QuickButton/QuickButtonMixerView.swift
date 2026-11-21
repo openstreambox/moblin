@@ -219,6 +219,29 @@ private struct MixerSourceDelayView: View {
     }
 }
 
+private struct MixerSyncView: View {
+    let model: Model
+
+    var body: some View {
+        Form {
+            AudioSyncView(model: model, audioSync: model.audioSync)
+        }
+        .navigationTitle("Sync mixed mics")
+    }
+}
+
+private struct MixerSyncLinkView: View {
+    let model: Model
+
+    var body: some View {
+        NavigationLink {
+            MixerSyncView(model: model)
+        } label: {
+            Label("Sync mixed mics", systemImage: "waveform")
+        }
+    }
+}
+
 private struct MixerSourceSettingsView: View {
     let model: Model
     @ObservedObject var mic: SettingsMicsMic
@@ -256,6 +279,7 @@ private struct MixerSourceSettingsView: View {
             }
             Section {
                 MixerSourceDelayView(model: model, mic: mic)
+                MixerSyncLinkView(model: model)
             } footer: {
                 Text("A positive delay makes the audio later, a negative delay earlier.")
             }
@@ -405,6 +429,7 @@ struct QuickButtonMixerView: View {
                     }
                 }
                 MixerAddSourceView(model: model, mics: mics, current: current)
+                MixerSyncLinkView(model: model)
             } footer: {
                 Text("Tap for gain. Swipe for mute or settings.")
             }
