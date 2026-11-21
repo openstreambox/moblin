@@ -243,7 +243,17 @@ private struct MixerSourceSettingsView: View {
             } footer: {
                 Text("Voice removes rumble and evens out the level of speech.")
             }
-            // Pan goes here.
+            Section {
+                HStack {
+                    Text("Pan")
+                    Slider(value: $mic.pan, in: -1.0 ... 1.0, step: 0.05)
+                        .onChange(of: mic.pan) { _ in
+                            model.updateMixedMics()
+                        }
+                    Text(formatPan(mic.pan))
+                        .frame(width: 65)
+                }
+            }
             Section {
                 MixerSourceDelayView(model: model, mic: mic)
             } footer: {
