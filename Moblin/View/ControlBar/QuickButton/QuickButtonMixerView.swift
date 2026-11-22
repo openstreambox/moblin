@@ -113,6 +113,7 @@ private struct MixerSourceHeaderView: View {
                 .font(.callout)
                 HStack {
                     MixerMeterView(level: model.audioMixerMeters.source(id: mic.id), dimmed: mic.muted)
+                    MixerEffectsMarkView(effects: mic.effects)
                     if main {
                         MixerTagView(text: Text("Main"))
                     }
@@ -290,6 +291,7 @@ private struct MixerSourceSettingsView: View {
                 .onChange(of: mic.processing) { _ in
                     model.updateMixedMics()
                 }
+                MixerSourceEffectsLinkView(model: model, effects: mic.effects)
             } footer: {
                 Text("Voice removes rumble and evens out the level of speech.")
             }
@@ -374,6 +376,7 @@ private struct MixerOutputView: View {
                         .foregroundStyle(.red)
                         .fixedSize()
                 }
+                MixerOutputEffectsMarkView(effects: audio.outputEffects)
                 Spacer(minLength: 0)
                 Text("\(formatOneDecimal(audio.gainDb)) dB")
                     .foregroundStyle(.secondary)
@@ -490,6 +493,7 @@ struct QuickButtonMixerView: View {
                     if outputExpanded {
                         MixerOutputGainView(model: model, audio: model.database.audio)
                             .id("output gain")
+                        MixerOutputEffectsLinkView(model: model, effects: model.database.audio.outputEffects)
                     }
                 }
             }
