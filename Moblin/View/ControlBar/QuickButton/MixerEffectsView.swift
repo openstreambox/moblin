@@ -3,11 +3,13 @@ import SwiftUI
 private let effectsSampleRate: Double = 48000
 
 func formatMixerFrequency(_ frequency: Float) -> String {
-    if frequency >= 1000 {
-        "\(formatOneDecimal(frequency / 1000)) kHz"
-    } else {
-        "\(Int(frequency.rounded())) Hz"
+    guard frequency.isFinite else {
+        return "-"
     }
+    if frequency >= 1000 {
+        return "\(formatOneDecimal(frequency / 1000)) kHz"
+    }
+    return "\(Int(frequency.clamped(to: 0 ... 1000).rounded())) Hz"
 }
 
 private func formatDb(_ value: Float) -> String {
@@ -15,7 +17,10 @@ private func formatDb(_ value: Float) -> String {
 }
 
 private func formatMilliseconds(_ seconds: Float) -> String {
-    "\(Int((seconds * 1000).rounded())) ms"
+    guard seconds.isFinite else {
+        return "-"
+    }
+    return "\(Int((seconds.clamped(to: 0 ... 60) * 1000).rounded())) ms"
 }
 
 func makeMixerEqualizerSummary(_ equalizer: SettingsAudioMixerEqualizer) -> String {
@@ -280,20 +285,20 @@ struct MixerEqualizerControlsView: View {
     var body: some View {
         MixerEffectSliderView(label: "Frequency",
                               value: $equalizer.frequency,
-                              range: 20 ... 20000,
+                              range: audioMixerEqualizerFrequencyRange,
                               step: 1,
                               logarithmic: true,
                               format: formatMixerFrequency,
                               onEditingEnded: onEditingEnded)
         MixerEffectSliderView(label: "Gain",
                               value: $equalizer.gain,
-                              range: -12 ... 12,
+                              range: audioMixerEqualizerGainRange,
                               step: 0.5,
                               format: formatDb,
                               onEditingEnded: onEditingEnded)
         MixerEffectSliderView(label: "Width",
                               value: $equalizer.bandwidth,
-                              range: 0.1 ... 3,
+                              range: audioMixerBandwidthRange,
                               step: 0.1,
                               format: { String(localized: "\(formatOneDecimal($0)) oct") },
                               onEditingEnded: onEditingEnded)
@@ -307,26 +312,26 @@ private struct MixerDeEsserControlsView: View {
     var body: some View {
         MixerEffectSliderView(label: "Frequency",
                               value: $deEsser.frequency,
-                              range: 2000 ... 15000,
+                              range: audioMixerDeEsserFrequencyRange,
                               step: 100,
                               logarithmic: true,
                               format: formatMixerFrequency,
                               onEditingEnded: onEditingEnded)
         MixerEffectSliderView(label: "Threshold",
                               value: $deEsser.threshold,
-                              range: -60 ... 0,
+                              range: audioMixerDeEsserThresholdRange,
                               step: 1,
                               format: formatDb,
                               onEditingEnded: onEditingEnded)
         MixerEffectSliderView(label: "Maximum",
                               value: $deEsser.maximumReduction,
-                              range: 0 ... 24,
+                              range: audioMixerMaximumReductionRange,
                               step: 0.5,
                               format: formatDb,
                               onEditingEnded: onEditingEnded)
         MixerEffectSliderView(label: "Width",
                               value: $deEsser.bandwidth,
-                              range: 0.1 ... 3,
+                              range: audioMixerBandwidthRange,
                               step: 0.1,
                               format: { String(localized: "\(formatOneDecimal($0)) oct") },
                               onEditingEnded: onEditingEnded)
@@ -342,13 +347,13 @@ private struct MixerTimingView: View {
         DisclosureGroup {
             MixerEffectSliderView(label: "Attack",
                                   value: $attack,
-                                  range: 0.001 ... 0.2,
+                                  range: audioMixerAttackRange,
                                   step: 0.001,
                                   format: formatMilliseconds,
                                   onEditingEnded: onEditingEnded)
             MixerEffectSliderView(label: "Release",
                                   value: $release,
-                                  range: 0.01 ... 3,
+                                  range: audioMixerReleaseRange,
                                   step: 0.01,
                                   format: formatMilliseconds,
                                   onEditingEnded: onEditingEnded)
@@ -398,13 +403,13 @@ struct MixerSourceEffectsView: View {
                 if expanded == .expander {
                     MixerEffectSliderView(label: "Threshold",
                                           value: $effects.expander.threshold,
-                                          range: -80 ... 0,
+                                          range: audioMixerExpanderThresholdRange,
                                           step: 1,
                                           format: formatDb,
                                           onEditingEnded: update)
                     MixerEffectSliderView(label: "Ratio",
                                           value: $effects.expander.ratio,
-                                          range: 1 ... 20,
+                                          range: audioMixerRatioRange,
                                           step: 0.5,
                                           format: { formatOneDecimal($0) },
                                           onEditingEnded: update)
@@ -439,19 +444,19 @@ struct MixerSourceEffectsView: View {
                 if expanded == .compressor {
                     MixerEffectSliderView(label: "Threshold",
                                           value: $effects.compressor.threshold,
-                                          range: -40 ... 0,
+                                          range: audioMixerCompressorThresholdRange,
                                           step: 1,
                                           format: formatDb,
                                           onEditingEnded: update)
                     MixerEffectSliderView(label: "Headroom",
                                           value: $effects.compressor.headroom,
-                                          range: 1 ... 20,
+                                          range: audioMixerHeadroomRange,
                                           step: 0.5,
                                           format: formatDb,
                                           onEditingEnded: update)
                     MixerEffectSliderView(label: "Make-up gain",
                                           value: $effects.compressor.makeupGain,
-                                          range: -12 ... 24,
+                                          range: audioMixerMakeupGainRange,
                                           step: 0.5,
                                           format: formatDb,
                                           onEditingEnded: update)

@@ -43,6 +43,27 @@ enum SettingsMicsMicOutput: String, Codable, CaseIterable {
     }
 }
 
+let audioMixerEqualizerFrequencyRange: ClosedRange<Float> = 20 ... 20000
+let audioMixerEqualizerGainRange: ClosedRange<Float> = -12 ... 12
+let audioMixerBandwidthRange: ClosedRange<Float> = 0.1 ... 3
+let audioMixerAttackRange: ClosedRange<Float> = 0.001 ... 0.2
+let audioMixerReleaseRange: ClosedRange<Float> = 0.01 ... 3
+let audioMixerCompressorThresholdRange: ClosedRange<Float> = -40 ... 0
+let audioMixerHeadroomRange: ClosedRange<Float> = 1 ... 20
+let audioMixerMakeupGainRange: ClosedRange<Float> = -12 ... 24
+let audioMixerExpanderThresholdRange: ClosedRange<Float> = -80 ... 0
+let audioMixerRatioRange: ClosedRange<Float> = 1 ... 20
+let audioMixerDeEsserFrequencyRange: ClosedRange<Float> = 2000 ... 15000
+let audioMixerDeEsserThresholdRange: ClosedRange<Float> = -60 ... 0
+let audioMixerMaximumReductionRange: ClosedRange<Float> = 0 ... 24
+
+private extension KeyedDecodingContainer {
+    func decode(_ key: Key, _ defaultValue: Float, _ range: ClosedRange<Float>) -> Float {
+        let value = decode(key, Float.self, defaultValue)
+        return value.isFinite ? value.clamped(to: range) : defaultValue
+    }
+}
+
 struct SettingsAudioMixerEqualizer: Codable, Equatable, Identifiable {
     var id = UUID()
     var enabled = false
@@ -64,9 +85,9 @@ struct SettingsAudioMixerEqualizer: Codable, Equatable, Identifiable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = container.decode(.id, UUID.self, .init())
         enabled = container.decode(.enabled, Bool.self, false)
-        frequency = container.decode(.frequency, Float.self, 1000)
-        gain = container.decode(.gain, Float.self, 0)
-        bandwidth = container.decode(.bandwidth, Float.self, 1)
+        frequency = container.decode(.frequency, 1000, audioMixerEqualizerFrequencyRange)
+        gain = container.decode(.gain, 0, audioMixerEqualizerGainRange)
+        bandwidth = container.decode(.bandwidth, 1, audioMixerBandwidthRange)
     }
 }
 
@@ -92,11 +113,11 @@ struct SettingsAudioMixerCompressor: Codable, Equatable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         enabled = container.decode(.enabled, Bool.self, false)
-        threshold = container.decode(.threshold, Float.self, -24)
-        headroom = container.decode(.headroom, Float.self, 6)
-        attack = container.decode(.attack, Float.self, 0.003)
-        release = container.decode(.release, Float.self, 0.12)
-        makeupGain = container.decode(.makeupGain, Float.self, 0)
+        threshold = container.decode(.threshold, -24, audioMixerCompressorThresholdRange)
+        headroom = container.decode(.headroom, 6, audioMixerHeadroomRange)
+        attack = container.decode(.attack, 0.003, audioMixerAttackRange)
+        release = container.decode(.release, 0.12, audioMixerReleaseRange)
+        makeupGain = container.decode(.makeupGain, 0, audioMixerMakeupGainRange)
     }
 }
 
@@ -120,10 +141,10 @@ struct SettingsAudioMixerExpander: Codable, Equatable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         enabled = container.decode(.enabled, Bool.self, false)
-        threshold = container.decode(.threshold, Float.self, -40)
-        ratio = container.decode(.ratio, Float.self, 4)
-        attack = container.decode(.attack, Float.self, 0.003)
-        release = container.decode(.release, Float.self, 0.12)
+        threshold = container.decode(.threshold, -40, audioMixerExpanderThresholdRange)
+        ratio = container.decode(.ratio, 4, audioMixerRatioRange)
+        attack = container.decode(.attack, 0.003, audioMixerAttackRange)
+        release = container.decode(.release, 0.12, audioMixerReleaseRange)
     }
 }
 
@@ -147,10 +168,10 @@ struct SettingsAudioMixerDeEsser: Codable, Equatable {
     init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         enabled = container.decode(.enabled, Bool.self, false)
-        frequency = container.decode(.frequency, Float.self, 6000)
-        bandwidth = container.decode(.bandwidth, Float.self, 1)
-        threshold = container.decode(.threshold, Float.self, -24)
-        maximumReduction = container.decode(.maximumReduction, Float.self, 9)
+        frequency = container.decode(.frequency, 6000, audioMixerDeEsserFrequencyRange)
+        bandwidth = container.decode(.bandwidth, 1, audioMixerBandwidthRange)
+        threshold = container.decode(.threshold, -24, audioMixerDeEsserThresholdRange)
+        maximumReduction = container.decode(.maximumReduction, 9, audioMixerMaximumReductionRange)
     }
 }
 

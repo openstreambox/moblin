@@ -214,6 +214,32 @@ struct SettingsSuite {
     }
 
     @Test
+    func micEffectsAreClampedOnDecode() throws {
+        let json = #"""
+        {"effects":{"equalizer":{"enabled":true,"frequency":-1e30,"gain":40,"bandwidth":0},
+        "compressor":{"threshold":10,"headroom":0,"attack":5,"release":0,"makeupGain":100},
+        "expander":{"threshold":-200,"ratio":0},
+        "deEsser":{"frequency":100,"bandwidth":9,"threshold":20,"maximumReduction":-3}}}
+        """#
+        let effects = try JSONDecoder().decode(SettingsMicsMic.self, from: Data(json.utf8)).effects
+        #expect(effects.equalizer.frequency == audioMixerEqualizerFrequencyRange.lowerBound)
+        #expect(effects.equalizer.gain == audioMixerEqualizerGainRange.upperBound)
+        #expect(effects.equalizer.bandwidth == audioMixerBandwidthRange.lowerBound)
+        #expect(effects.compressor.threshold == audioMixerCompressorThresholdRange.upperBound)
+        #expect(effects.compressor.headroom == audioMixerHeadroomRange.lowerBound)
+        #expect(effects.compressor.attack == audioMixerAttackRange.upperBound)
+        #expect(effects.compressor.release == audioMixerReleaseRange.lowerBound)
+        #expect(effects.compressor.makeupGain == audioMixerMakeupGainRange.upperBound)
+        #expect(effects.expander.threshold == audioMixerExpanderThresholdRange.lowerBound)
+        #expect(effects.expander.ratio == audioMixerRatioRange.lowerBound)
+        #expect(effects.deEsser.frequency == audioMixerDeEsserFrequencyRange.lowerBound)
+        #expect(effects.deEsser.bandwidth == audioMixerBandwidthRange.upperBound)
+        #expect(effects.deEsser.threshold == audioMixerDeEsserThresholdRange.upperBound)
+        #expect(effects.deEsser.maximumReduction == audioMixerMaximumReductionRange.lowerBound)
+        #expect(formatMixerFrequency(effects.equalizer.frequency) == "20 Hz")
+    }
+
+    @Test
     func audioOutputEffects() throws {
         let audio = SettingsAudio()
         var decoded = try JSONDecoder().decode(SettingsAudio.self, from: JSONEncoder().encode(audio))
