@@ -616,7 +616,13 @@ struct QuickButtonMixerView: View {
                     if swappingMic || current == nil {
                         ForEach(mics.mics) { mic in
                             QuickButtonMicMicView(model: model, mic: mic, modelMic: modelMic)
+                                .simultaneousGesture(TapGesture().onEnded {
+                                    swappingMic = false
+                                })
                                 .deleteDisabled(mic == modelMic.current)
+                                .contextMenuDeleteButton(disabled: mic == modelMic.current) {
+                                    mics.mics.removeAll { $0.id == mic.id }
+                                }
                         }
                         .onDelete { offsets in
                             mics.mics.remove(atOffsets: offsets)
@@ -686,6 +692,9 @@ struct QuickButtonMixerView: View {
             }
             .onChange(of: modelMic.current.id) { _ in
                 swappingMic = false
+            }
+            .onChange(of: mics.mics) { _ in
+                model.updateMixedMics()
             }
         }
         .navigationTitle("Audio")
