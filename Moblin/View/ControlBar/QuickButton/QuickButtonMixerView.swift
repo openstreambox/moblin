@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 private let mixerIconSize: CGFloat = 34
@@ -403,6 +404,42 @@ private struct MixerAddSourceItemView: View {
     }
 }
 
+private struct MixerAddSourceDividerView: View {
+    let mics: [SettingsMicsMic]
+    let current: SettingsMicsMic?
+    @State private var visible: Bool
+
+    init(mics: [SettingsMicsMic], current: SettingsMicsMic?) {
+        self.mics = mics
+        self.current = current
+        _visible = State(initialValue: Self.isVisible(mics, current))
+    }
+
+    private static func isVisible(_ mics: [SettingsMicsMic], _ current: SettingsMicsMic?) -> Bool {
+        mics.contains(where: { isMixerSourceAddable($0, current: current) })
+    }
+
+    private func update() {
+        visible = Self.isVisible(mics, current)
+    }
+
+    var body: some View {
+        ZStack {
+            Color.clear
+                .frame(height: 0)
+            if visible {
+                Divider()
+            }
+        }
+        .onChange(of: mics) { _ in
+            update()
+        }
+        .onReceive(Publishers.MergeMany(mics.map(\.objectWillChange)).receive(on: DispatchQueue.main)) { _ in
+            update()
+        }
+    }
+}
+
 private struct MixerAddSourceListView: View {
     let model: Model
     @ObservedObject var mics: SettingsMics
@@ -419,9 +456,7 @@ private struct MixerAddSourceListView: View {
                     dismiss()
                     createSource()
                 }
-                if mics.mics.contains(where: { isMixerSourceAddable($0, current: current) }) {
-                    Divider()
-                }
+                MixerAddSourceDividerView(mics: mics.mics, current: current)
                 ForEach(mics.mics) { mic in
                     MixerAddSourceItemView(model: model, mic: mic, current: current, dismiss: dismiss)
                 }
