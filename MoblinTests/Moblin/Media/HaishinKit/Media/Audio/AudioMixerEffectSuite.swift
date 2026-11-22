@@ -90,6 +90,28 @@ struct AudioMixerEffectSuite {
     }
 
     @Test
+    func deEsserReducesSibilanceWithLinkedStereoGain() throws {
+        let deEsser = try #require(AudioMixerEffectSettings.deEsser(.init()).makeStage())
+        let speech = try #require(AudioMixerEffectSettings.deEsser(.init()).makeStage())
+        #expect(deEsser.latency == 0)
+        var sibilancePeak: Float = 0
+        var speechPeak: Float = 0
+        for block in 0 ..< 10 {
+            var left = createBlock(block) { 0.4 * sin(Float($0 % 8) * .pi / 4) }
+            var right = left.map { 0.05 * $0 }
+            var speechLeft = createBlock(block) { createSine(0, $0) }
+            var speechRight = speechLeft
+            try #require(deEsser.process(&left, &right))
+            try #require(speech.process(&speechLeft, &speechRight))
+            sibilancePeak = peak(left.suffix(256))
+            speechPeak = peak(speechLeft.suffix(256))
+            #expect(zip(left, right).allSatisfy { abs($0 * 0.05 - $1) < 0.0001 })
+        }
+        #expect(sibilancePeak > 0.1 && sibilancePeak < 0.2)
+        #expect(abs(speechPeak - 0.5) < 0.01)
+    }
+
+    @Test
     func latencyIsImpulseDelay() throws {
         let limiter = try #require(makeAudioMixerLimiter())
         var output: [Float] = []

@@ -73,14 +73,22 @@ struct AudioMixerExpander: Equatable {
     var release: Float = 0.12
 }
 
+struct AudioMixerDeEsserSettings: Equatable {
+    var frequency: Float = 6000
+    var bandwidth: Float = 1200
+    var threshold: Float = -24
+    var maximumReduction: Float = 9
+}
+
 enum AudioMixerEffectSettings: Equatable {
     case equalizer(AudioMixerEqualizer)
     case compressor(AudioMixerCompressor)
     case expander(AudioMixerExpander)
+    case deEsser(AudioMixerDeEsserSettings)
 
     var canUseOnMaster: Bool {
         switch self {
-        case .equalizer:
+        case .equalizer, .deEsser:
             true
         case .compressor, .expander:
             false
@@ -113,6 +121,8 @@ enum AudioMixerEffectSettings: Equatable {
                                    attack: settings.attack,
                                    release: settings.release,
                                    makeupGain: 0)
+        case let .deEsser(settings):
+            AudioMixerDeEsser(settings)
         }
     }
 }
@@ -156,6 +166,63 @@ final class AudioMixerEffectBuffer {
         crossfadeAudioMixerSamples(from: current, to: next, output: current)
         let fade = audioMixerFadeFrames
         (current + fade).update(from: next + fade, count: audioMixerFramesPerBlock - fade)
+    }
+}
+
+private final class AudioMixerDeEsser: AudioMixerEffectStage {
+    let latency: Int64 = 0
+    private let filter: AudioMixerEffect
+    private let sibilance = AudioMixerEffectBuffer()
+    private let threshold: Float
+    private let maximumCut: Float
+    private let attack = Float(exp(-1 / (0.00015 * audioMixerSampleRate)))
+    private let release = Float(exp(-1 / (0.035 * audioMixerSampleRate)))
+    private var envelope: Float = 0
+    private var bypassed = false
+
+    init?(_ settings: AudioMixerDeEsserSettings) {
+        guard let filter = AudioMixerEffect(subType: kAudioUnitSubType_BandPassFilter, parameters: [
+            kBandpassParam_CenterFrequency: settings.frequency.clamped(to: 2000 ... 15000),
+            kBandpassParam_Bandwidth: settings.bandwidth.clamped(to: 100 ... 3600),
+        ]), filter.latency == 0 else {
+            return nil
+        }
+        self.filter = filter
+        threshold = pow(10, settings.threshold.clamped(to: -60 ... 0) / 20)
+        maximumCut = 1 - pow(10, -settings.maximumReduction.clamped(to: 0 ... 24) / 20)
+    }
+
+    func reset() {
+        envelope = 0
+        bypassed = false
+        filter.reset()
+    }
+
+    func process(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>) -> Bool {
+        guard !bypassed else {
+            return true
+        }
+        sibilance.left.update(from: left, count: audioMixerFramesPerBlock)
+        sibilance.right.update(from: right, count: audioMixerFramesPerBlock)
+        guard filter.process(sibilance.left, sibilance.right) else {
+            bypassed = true
+            return true
+        }
+        var envelope = envelope
+        for index in 0 ..< audioMixerFramesPerBlock {
+            let bandLeft = sibilance.left[index]
+            let bandRight = sibilance.right[index]
+            let peak = max(abs(bandLeft), abs(bandRight))
+            let smoothing = peak > envelope ? attack : release
+            envelope = peak + smoothing * (envelope - peak)
+            if envelope > threshold {
+                let cut = min(maximumCut, 1 - threshold / envelope)
+                left[index] -= bandLeft * cut
+                right[index] -= bandRight * cut
+            }
+        }
+        self.envelope = envelope < 1e-12 ? 0 : envelope
+        return true
     }
 }
 
