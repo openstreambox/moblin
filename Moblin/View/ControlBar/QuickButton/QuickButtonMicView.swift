@@ -57,7 +57,7 @@ struct QuickButtonMicView: View {
                     Text("Highest priority mic at the top of the list.")
                     Text("")
                     if model.database.debug.audioMixer {
-                        Text("Tap a mic to make it the main mic. Mix more sources in the Mixer.")
+                        Text("Tap a mic to make it the main mic. Mix more sources in Audio.")
                         Text("")
                     }
                     SwipeLeftToDeleteHelpView(kind: String(localized: "a mic"))
@@ -68,7 +68,7 @@ struct QuickButtonMicView: View {
                     NavigationLink {
                         QuickButtonMixerView(model: model, mics: mics, modelMic: modelMic)
                     } label: {
-                        Label("Mixer", systemImage: "slider.vertical.3")
+                        Label("Audio", systemImage: "slider.vertical.3")
                     }
                 }
             }

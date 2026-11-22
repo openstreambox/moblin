@@ -506,7 +506,7 @@ struct QuickButtonMixerView: View {
                 }
             }
         }
-        .navigationTitle("Mixer")
+        .navigationTitle("Audio")
         .navigationDestination(isPresented: $presentingSettings) {
             if let mic = findMixerSource(id: settingsMicId, sources: mixerSources()) {
                 MixerSourceSettingsView(model: model, mic: mic, modelMic: modelMic)

@@ -213,7 +213,7 @@ enum SettingsQuickButtonType: String, Codable, CaseIterable {
         case .soundBoard:
             String(localized: "Sound board")
         case .mixer:
-            String(localized: "Mixer")
+            String(localized: "Audio")
         }
     }
 
