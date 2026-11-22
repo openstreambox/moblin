@@ -41,7 +41,7 @@ final class AudioMixerSource {
     private let channelsMap: [Int: Int]
     private let channel: Int?
     private let voice: Bool
-    private let effects: [AudioMixerEffect]
+    private let effects: AudioMixerEffectChain
     private var gain: Float = 0
     private var currentGain: Float = 0
     private var pan: (left: Float, right: Float) = (1, 1)
@@ -66,8 +66,8 @@ final class AudioMixerSource {
         channelsMap = settings.channelsMap
         channel = settings.channel
         voice = settings.voice
-        effects = settings.voice ? makeAudioMixerVoiceEffects() : []
-        effectsLatency = effects.reduce(0) { $0 + $1.latency }
+        effects = AudioMixerEffectChain(settings.voice ? makeAudioMixerVoiceEffects() : [])
+        effectsLatency = effects.latency
         update(settings: settings)
         currentDelay = delay
         currentSends = sends
@@ -201,9 +201,7 @@ final class AudioMixerSource {
 
     private func start(_ input: AudioMixerInput, _ index: Int64) -> Bool {
         if !effects.isEmpty {
-            for effect in effects {
-                effect.reset()
-            }
+            effects.reset()
             let primingIndex = index + effectsLatency - Int64(audioMixerFramesPerBlock)
             read(input, primingIndex, audioMixerFramesPerBlock, left, right)
             guard process() else {
@@ -218,12 +216,7 @@ final class AudioMixerSource {
         if !effects.isEmpty, !isStereo {
             right.update(from: left, count: audioMixerFramesPerBlock)
         }
-        for effect in effects {
-            guard effect.process(left, right) else {
-                return false
-            }
-        }
-        return true
+        return effects.process(left, right)
     }
 
     private func read(_ input: AudioMixerInput,

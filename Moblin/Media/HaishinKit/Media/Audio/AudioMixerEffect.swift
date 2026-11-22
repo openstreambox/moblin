@@ -17,7 +17,42 @@ private func renderAudioMixerEffectInput(
     return noErr
 }
 
-final class AudioMixerEffect {
+protocol AudioMixerEffectStage: AnyObject {
+    var latency: Int64 { get }
+    func reset()
+    func process(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>) -> Bool
+}
+
+final class AudioMixerEffectChain {
+    let latency: Int64
+    private let stages: [any AudioMixerEffectStage]
+
+    init(_ stages: [any AudioMixerEffectStage]) {
+        self.stages = stages
+        latency = stages.reduce(0) { $0 + $1.latency }
+    }
+
+    var isEmpty: Bool {
+        stages.isEmpty
+    }
+
+    func reset() {
+        for stage in stages {
+            stage.reset()
+        }
+    }
+
+    func process(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>) -> Bool {
+        for stage in stages {
+            guard stage.process(left, right) else {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+final class AudioMixerEffect: AudioMixerEffectStage {
     private(set) var latency: Int64 = 0
     let audioUnit: AudioComponentInstance
     private let output: UnsafeMutableAudioBufferListPointer
@@ -161,7 +196,11 @@ final class AudioMixerEffect {
         else {
             return false
         }
-        self.latency = Int64((latency * audioMixerSampleRate).rounded())
+        let frames = (latency * audioMixerSampleRate).rounded()
+        guard frames.isFinite, frames >= 0, frames <= Double(Int32.max) else {
+            return false
+        }
+        self.latency = Int64(frames)
         return true
     }
 
