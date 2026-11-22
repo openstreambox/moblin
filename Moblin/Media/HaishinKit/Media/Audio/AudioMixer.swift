@@ -236,8 +236,8 @@ final class AudioMixer {
         bus.setMuted(muted)
     }
 
-    func appendBuiltin(_ sampleBuffer: CMSampleBuffer, _ presentationTimeStamp: CMTime) {
-        builtinInput?.append(sampleBuffer, presentationTimeStamp)
+    func appendBuiltin(_ sampleBuffer: CMSampleBuffer, _ presentationTimeStamp: CMTime, delay: Double = 0) {
+        builtinInput?.append(sampleBuffer, presentationTimeStamp + CMTime(seconds: delay))
     }
 
     func appendBuffered(cameraId: UUID, _ sampleBuffer: CMSampleBuffer) {

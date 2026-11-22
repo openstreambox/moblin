@@ -36,6 +36,15 @@ struct AudioMixerSuite {
         }
     }
 
+    struct BuiltinDelayCase: CustomTestStringConvertible {
+        let builtinDelay: Double
+        let frame: Int
+
+        var testDescription: String {
+            "\(builtinDelay) s"
+        }
+    }
+
     struct DelayChangeCase: CustomTestStringConvertible {
         let testDescription: String
         let delays: [Int: Double]
@@ -160,6 +169,28 @@ struct AudioMixerSuite {
         #expect(output.presentationTimeStamps.first == startIndex - testCase.latency - limiterLatency)
         #expect(output.frames { $0 != 0 } == [testCase.frame])
         #expect(output.samples(testCase.frame ..< testCase.frame + 1) == [0.5])
+    }
+
+    @Test(arguments: [
+        BuiltinDelayCase(builtinDelay: 0, frame: 30000),
+        BuiltinDelayCase(builtinDelay: 0.07, frame: 33360),
+    ])
+    func builtinDelayMovesContentOnce(_ testCase: BuiltinDelayCase) {
+        let mixer = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 1, false)
+        mixer.setSources([createSettings()])
+        let output = Output()
+        for tick in 0 ..< 60 {
+            mixer.appendBuiltin(createSampleBuffer(format, tick) { _, frame in frame == 30000 ? 0.5 : 0 },
+                                createTime(tick),
+                                delay: testCase.builtinDelay)
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                output.append(block)
+            }
+        }
+        #expect(output.isContinuous)
+        #expect(output.presentationTimeStamps.first == startIndex - 2400 - limiterLatency)
+        #expect(output.frames { $0 != 0 } == [testCase.frame])
     }
 
     @Test

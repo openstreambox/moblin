@@ -637,8 +637,7 @@ extension AudioUnit: AVCaptureAudioDataOutputSampleBufferDelegate {
         // Workaround for audio drift on iPhone 15 Pro Max running iOS 17. Probably issue on more models.
         let presentationTimeStamp = syncTimeToHost(processor: processor, sampleBuffer: sampleBuffer)
         if let mixer {
-            let presentationTimeStamp = presentationTimeStamp + CMTime(seconds: builtinDelay)
-            mixer.appendBuiltin(sampleBuffer, presentationTimeStamp)
+            mixer.appendBuiltin(sampleBuffer, presentationTimeStamp, delay: builtinDelay)
             return
         }
         updateBuiltinAudio(sampleBuffer, presentationTimeStamp)
