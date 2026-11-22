@@ -188,30 +188,18 @@ final class AudioMixerEffectBuffer {
         self.right.update(from: right, count: audioMixerFramesPerBlock)
     }
 
-    func crossfade(into left: UnsafeMutablePointer<Float>,
-                   _ right: UnsafeMutablePointer<Float>?,
-                   frames: Int = audioMixerFadeFrames)
-    {
-        crossfade(self.left, into: left, frames: frames)
+    func crossfade(into left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>?) {
+        crossfade(self.left, into: left)
         if let right {
-            crossfade(self.right, into: right, frames: frames)
+            crossfade(self.right, into: right)
         }
     }
 
-    private func crossfade(
-        _ next: UnsafePointer<Float>,
-        into current: UnsafeMutablePointer<Float>,
-        frames: Int
-    ) {
-        if frames == audioMixerFadeFrames {
-            crossfadeAudioMixerSamples(from: current, to: next, output: current)
-        } else {
-            for index in 0 ..< frames {
-                let weight = Float(index) / Float(frames - 1)
-                current[index] += (next[index] - current[index]) * weight
-            }
+    private func crossfade(_ next: UnsafePointer<Float>, into current: UnsafeMutablePointer<Float>) {
+        for index in 0 ..< audioMixerFramesPerBlock {
+            let weight = Float(index) / Float(audioMixerFramesPerBlock - 1)
+            current[index] += (next[index] - current[index]) * weight
         }
-        (current + frames).update(from: next + frames, count: audioMixerFramesPerBlock - frames)
     }
 }
 

@@ -93,7 +93,7 @@ struct AudioMixerSuite {
         FormatCase(buffered: true, commonFormat: .pcmFormatInt16, numberOfChannels: 1, interleaved: true),
     ])
     func passesThrough(_ testCase: FormatCase) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(testCase.commonFormat, testCase.numberOfChannels, testCase.interleaved)
         mixer.setSources([createSettings(bufferedAudio: testCase.buffered ? cameraId : nil)])
         let output = Output()
@@ -116,25 +116,58 @@ struct AudioMixerSuite {
     }
 
     @Test
-    func preparationAppliesTheMostRecentRequestOnTheMixerQueue() async {
+    func mixerKeepsRenderingWhilePreparationIsBlocked() throws {
         let preparation = AudioMixerPreparation()
-        let id: String? = await withCheckedContinuation { continuation in
-            AudioMixerMaintenance.shared.queue.async {
-                preparation.submit(sources: [createSettings(id: "older")], master: []) { _ in
-                    Issue.record("A superseded request was applied")
-                }
-                preparation.submit(sources: [createSettings(id: "latest")], master: []) { configuration in
-                    dispatchPrecondition(condition: .onQueue(processorPipelineQueue))
-                    continuation.resume(returning: configuration?.sources.first?.settings.id)
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        AudioMixerMaintenance.shared.queue.sync {
+            preparation.submit(sources: [], master: [])
+            preparation.submit(sources: [createSettings()], master: [])
+        }
+        try #require(waitForMixerUpdate(preparation))
+        let output = Output()
+        func render(ticks: Range<Int>) {
+            processorPipelineQueue.sync {
+                for tick in ticks {
+                    guard let mixer = preparation.mixer else {
+                        Issue.record("The active mixer disappeared")
+                        return
+                    }
+                    mixer.appendBuiltin(createSampleBuffer(format, tick), createTime(tick))
+                    while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                        output.append(block)
+                    }
+                    mixer.reportStats()
+                    preparation.finishTransition()
                 }
             }
         }
-        #expect(id == "latest")
+        render(ticks: 0 ..< 8)
+
+        let entered = DispatchSemaphore(value: 0)
+        let unblock = DispatchSemaphore(value: 0)
+        AudioMixerMaintenance.shared.queue.async {
+            entered.signal()
+            _ = unblock.wait(timeout: .now() + .seconds(10))
+        }
+        defer { unblock.signal() }
+        try #require(entered.wait(timeout: .now() + .seconds(5)) == .success)
+        preparation.submit(sources: [createSettings(gain: 0.5)], master: [])
+        #expect(!processorPipelineQueue.sync { preparation.adopt() })
+        render(ticks: 8 ..< 24)
+        let dry = 8 * 1024 ..< 18 * 1024
+        #expect(output.samples(0, dry) == createNoise(0, dry))
+
+        unblock.signal()
+        try #require(waitForMixerUpdate(preparation))
+        render(ticks: 24 ..< 40)
+        let changed = 30 * 1024 ..< 36 * 1024
+        #expect(output.samples(0, changed) == createNoise(0, changed).map { 0.5 * $0 })
+        #expect(output.isContinuous)
     }
 
     @Test
     func sourceEqualizerCanBeReplacedAndBypassedWithoutADrop() throws {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         let dry = createSettings()
         var wet = dry
@@ -163,7 +196,7 @@ struct AudioMixerSuite {
 
     @Test
     func sourceDynamicsChangesCompensateLookaheadWithoutRepeatingSamples() throws {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         let dry = createSettings(sends: (1, 0))
         var wet = dry
@@ -209,8 +242,8 @@ struct AudioMixerSuite {
 
     @Test
     func neutralEqualizerEditPreservesVoiceRelease() {
-        let edited = AudioMixer()
-        let reference = AudioMixer()
+        let edited = TestAudioMixer()
+        let reference = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         let voice = createSettings(voice: true)
         edited.setSources([voice])
@@ -244,7 +277,7 @@ struct AudioMixerSuite {
 
     @Test
     func masterEqualizerProcessesBothRoutesWithoutMovingTheirTimestamps() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([
             createSettings(id: "stream", channel: 0, sends: (1, 0)),
@@ -275,12 +308,12 @@ struct AudioMixerSuite {
         #expect(stream.samples(0, 18 * 1024 ..< 19 * 1024) == createSine(18 * 1024 ..< 19 * 1024))
     }
 
-    @Test
-    func masterEqualizerPrimesANarrowLowBandBeforeTheFade() throws {
+    @Test(arguments: [true, false])
+    func equalizerPrimesANarrowLowBandBeforeTheFade(onMaster: Bool) throws {
         let frequency: Float = 80
         let band = AudioMixerEqualizer(frequency: frequency, gain: 18, bandwidth: 0.05)
         let equalizer = try #require(AudioMixerEffectSettings.equalizer(band).makeStage())
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -289,7 +322,13 @@ struct AudioMixerSuite {
         }
         for tick in 0 ..< 28 {
             if tick == 12 {
-                mixer.setMasterEffects([.equalizer(band)])
+                if onMaster {
+                    mixer.setMasterEffects([.equalizer(band)])
+                } else {
+                    var source = createSettings()
+                    source.effects = [.equalizer(band)]
+                    mixer.setSources([source])
+                }
             }
             mixer.appendBuiltin(
                 createSampleBuffer(format, tick) { _, frame in sample(frame) },
@@ -311,14 +350,15 @@ struct AudioMixerSuite {
         #expect(equalizer.process(&left, &right))
         let actual = output.samples(0, frames)
         let primed = left.indices.map { dry[$0] + (left[$0] - dry[$0]) * Float($0) / 1023 }
-        #expect(zip(actual, primed).allSatisfy { abs($0 - $1) < 0.0001 })
+        let maximumError = zip(actual, primed).map { abs($0 - $1) }.max()
+        #expect((maximumError ?? 1) < 0.0001)
         #expect(calcMaximumStep(output.samples(0, fadeStart - 1 ..< fadeStart + 4096)) < 0.008)
         #expect(output.isContinuous)
     }
 
     @Test
     func masterEqualizerAttenuatesBeforeTheLimiter() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([createSettings()])
         mixer.setMasterEffects([.equalizer(.init(gain: -24))])
@@ -340,7 +380,7 @@ struct AudioMixerSuite {
 
     @Test
     func sumsSources() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let builtinFormat = createFormat(.pcmFormatFloat32, 2, false)
         let bufferedFormat = createFormat(.pcmFormatInt16, 2, true)
         mixer.setSources([
@@ -374,7 +414,7 @@ struct AudioMixerSuite {
         GainCase(sourceGain: 1, masterGain: 1, masterMuted: false, sends: (0, 1)),
     ], [false, true])
     func rampsGainChanges(_ testCase: GainCase, _ recording: Bool) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -408,7 +448,7 @@ struct AudioMixerSuite {
         DelayCase(delay: -0.5, frame: 6000, latency: 26400),
     ])
     func delaysContent(_ testCase: DelayCase) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings(delay: testCase.delay)])
         let output = Output()
@@ -432,7 +472,7 @@ struct AudioMixerSuite {
         BuiltinDelayCase(builtinDelay: 0.07, frame: 33360),
     ])
     func builtinDelayMovesContentOnce(_ testCase: BuiltinDelayCase) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -451,7 +491,7 @@ struct AudioMixerSuite {
 
     @Test
     func negativeDelayPausesDelivery() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -489,7 +529,7 @@ struct AudioMixerSuite {
         ),
     ], [false, true])
     func delayChangesCrossfade(_ testCase: DelayChangeCase, _ voice: Bool) throws {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings(voice: voice)])
         let output = Output()
@@ -511,7 +551,7 @@ struct AudioMixerSuite {
 
     @Test
     func delayChangesSeekOnceToNewest() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -538,7 +578,7 @@ struct AudioMixerSuite {
 
     @Test
     func delayChangeToUnwrittenInputFadesOut() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -562,7 +602,7 @@ struct AudioMixerSuite {
 
     @Test
     func channelsMapChangeCrossfades() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([createSettings(channelsMap: [0: 0, 1: 0])])
         let output = Output()
@@ -586,7 +626,7 @@ struct AudioMixerSuite {
 
     @Test
     func removedSourcesFadeOut() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([
             createSettings(id: "builtin"),
@@ -619,7 +659,7 @@ struct AudioMixerSuite {
 
     @Test
     func replacedSourceDoesNotReplay() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings(id: "usb")])
         let output = Output()
@@ -641,7 +681,7 @@ struct AudioMixerSuite {
 
     @Test(arguments: [600, 672, 928])
     func stalledSourceFadesOut(_ lastFrameLength: Int) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -665,7 +705,7 @@ struct AudioMixerSuite {
 
     @Test
     func backwardResyncSilencesSource() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -687,7 +727,7 @@ struct AudioMixerSuite {
 
     @Test(arguments: [false, true])
     func stalledSourceFadesBackIn(_ lateInput: Bool) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -713,7 +753,7 @@ struct AudioMixerSuite {
 
     @Test
     func skipsForwardWhenOneSecondBehind() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -751,7 +791,7 @@ struct AudioMixerSuite {
         DelayedCase(testDescription: "written 4 s ahead", ahead: 192_000, lateTicks: 0 ..< 0),
     ])
     func delayedInputIsKept(_ testCase: DelayedCase) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([
             createSettings(id: "delayed", bufferedAudio: cameraId, delay: 2),
@@ -780,7 +820,7 @@ struct AudioMixerSuite {
 
     @Test
     func overwrittenInputIsSilent() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings(delay: 2)])
         let output = Output()
@@ -806,7 +846,7 @@ struct AudioMixerSuite {
         ChannelCase(testDescription: "missing channel 5", channelsMap: [:], channel: 4, left: -1, right: -1),
     ])
     func picksChannels(_ testCase: ChannelCase) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 4, false)
         mixer.setSources([createSettings(channelsMap: testCase.channelsMap, channel: testCase.channel)])
         let output = Output()
@@ -823,7 +863,7 @@ struct AudioMixerSuite {
 
     @Test(arguments: [[0: 0, 1: 1], [0: 5, 1: 6]])
     func mixesInMono(_ channelsMap: [Int: Int]) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         mixer.setStereo(false)
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([createSettings(channelsMap: channelsMap, sends: (1, 0.5), pan: 1)])
@@ -846,13 +886,16 @@ struct AudioMixerSuite {
 
     @Test
     func switchesBetweenMonoAndStereo() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([createSettings(pan: 0.5)])
         let output = Output()
         for tick in 0 ..< 36 {
             if tick == 12 || tick == 24 {
                 mixer.setStereo(tick == 24)
+            }
+            if tick == 16 {
+                mixer.setSources([createSettings(pan: -0.5)])
             }
             mixer.appendBuiltin(
                 createSampleBuffer(format, tick) { 0.5 * createNoise($0, $1) },
@@ -863,8 +906,9 @@ struct AudioMixerSuite {
             }
         }
         let gains = makeAudioMixerPanGains(pan: 0.5)
+        let gainsAgain = makeAudioMixerPanGains(pan: -0.5)
         let stereo = 4096 ..< 8192
-        let mono = 14336 ..< 18432
+        let mono = 13312 ..< 20480
         let stereoAgain = 26624 ..< 30720
         #expect(output.numbersOfChannels == [1, 2])
         #expect(zip(output.samples(0, stereo), createNoise(0, stereo))
@@ -874,7 +918,7 @@ struct AudioMixerSuite {
         #expect(output.samples(0, mono) == createNoise(0, mono).map { 0.5 * $0 })
         #expect(output.samples(1, mono).allSatisfy { $0.isNaN })
         #expect(zip(output.samples(1, stereoAgain), createNoise(1, stereoAgain))
-            .allSatisfy { abs($0 - 0.5 * $1 * gains.right) < 1e-6 })
+            .allSatisfy { abs($0 - 0.5 * $1 * gainsAgain.right) < 1e-6 })
     }
 
     @Test(arguments: [
@@ -894,7 +938,7 @@ struct AudioMixerSuite {
 
     @Test(arguments: [1, 2], [-1, -0.5, 0, 0.5, 1] as [Float])
     func pansSources(_ numberOfChannels: Int, _ pan: Float) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, numberOfChannels, false)
         mixer.setSources([createSettings(pan: pan)])
         let output = Output()
@@ -918,7 +962,7 @@ struct AudioMixerSuite {
 
     @Test(arguments: [false, true])
     func panChangesRamp(_ recording: Bool) throws {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings(sends: (1, recording ? 0.5 : 1))])
         let output = Output()
@@ -946,7 +990,7 @@ struct AudioMixerSuite {
 
     @Test
     func sharesOneInputPerDevice() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         mixer.setSources([
             createSettings(id: "1", channelsMap: [0: 0, 1: 0]),
             createSettings(id: "2", channelsMap: [0: 1, 1: 1]),
@@ -962,7 +1006,7 @@ struct AudioMixerSuite {
     func voiceLatencyIsCompensated() throws {
         let effects = makeAudioMixerVoiceEffects()
         try #require(effects.count == 2)
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([
             createSettings(id: "dry"),
@@ -990,7 +1034,7 @@ struct AudioMixerSuite {
 
     @Test
     func voiceStartsWithoutClick() throws {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings()])
         let output = Output()
@@ -1039,7 +1083,7 @@ struct AudioMixerSuite {
                   recording: [30000, 31000]),
     ])
     func sendsToBuses(_ testCase: SendsCase) {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([
             createSettings(id: "voice"),
@@ -1070,7 +1114,7 @@ struct AudioMixerSuite {
 
     @Test
     func sendsChangeBackWithoutClick() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 1, false)
         mixer.setSources([createSettings(sends: (1, 0))])
         let output = Output()
@@ -1096,7 +1140,7 @@ struct AudioMixerSuite {
 
     @Test
     func capturesInputBeforeDelayAndGain() throws {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         mixer.setSources([createSettings(id: "channel 2", channel: 1, gain: 0.25, delay: 0.5)])
         for tick in 0 ..< 20 {
@@ -1109,7 +1153,7 @@ struct AudioMixerSuite {
 
     @Test
     func captureRefusesIncompleteWindows() {
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatInt16, 1, true)
         mixer.setSources([
             createSettings(id: "builtin"),
@@ -1147,7 +1191,7 @@ struct AudioMixerSuite {
             }
             return 0
         }
-        let mixer = AudioMixer()
+        let mixer = TestAudioMixer()
         mixer.setSources([
             createSettings(id: "early", bufferedAudio: cameraId, gain: 0.5),
             createSettings(id: "late", bufferedAudio: otherCameraId, gain: 0.5, delay: 0.1),
@@ -1283,20 +1327,98 @@ private func isCaptureFailure(_ result: Result<[Float], AudioMixerCaptureError>,
     return false
 }
 
-private extension AudioMixer {
-    convenience init() {
-        self.init(AudioMixerConfiguration(sources: [], master: [], previous: nil))
+@dynamicMemberLookup
+private final class TestAudioMixer {
+    private let mixer: AudioMixer
+    private var graph: AudioMixerGraph
+    private var retained: [AudioMixerGraph] = []
+
+    init() {
+        let configuration = AudioMixerConfiguration(sources: [], master: [], previous: nil)
+        graph = AudioMixerGraph(configuration, previous: nil)
+        mixer = AudioMixer(configuration)
+        mixer.install(graph)
+    }
+
+    subscript<Value>(dynamicMember keyPath: KeyPath<AudioMixer, Value>) -> Value {
+        mixer[keyPath: keyPath]
+    }
+
+    var sources: [AudioMixerSource] {
+        graph.entries.map(\.source)
+    }
+
+    var bufferedInputs: [UUID: AudioMixerInput] {
+        graph.bufferedInputs.mapValues(\.audio)
+    }
+
+    var builtinInput: AudioMixerInput? {
+        graph.builtinInput?.audio
     }
 
     func setSources(_ sources: [AudioMixerSourceSettings]) {
-        apply(AudioMixerConfiguration(sources: sources, master: configuration.masterSettings,
-                                      previous: configuration))
+        apply(sources: sources, master: graph.configuration.masterSettings)
+    }
+
+    func setStereo(_ stereo: Bool) {
+        mixer.setStereo(stereo)
     }
 
     func setMasterEffects(_ effects: [AudioMixerEffectSettings]) {
-        apply(AudioMixerConfiguration(sources: configuration.sources.map(\.settings), master: effects,
-                                      previous: configuration))
+        apply(sources: graph.configuration.sources.map(\.settings), master: effects)
     }
+
+    private func apply(sources: [AudioMixerSourceSettings], master: [AudioMixerEffectSettings]) {
+        let configuration = AudioMixerConfiguration(sources: sources, master: master,
+                                                    previous: graph.configuration)
+        retained.append(graph)
+        graph = AudioMixerGraph(configuration, previous: graph)
+        mixer.install(graph)
+    }
+
+    func setMasterGain(_ gain: Float) {
+        mixer.setMasterGain(gain)
+    }
+
+    func setMasterMuted(_ muted: Bool) {
+        mixer.setMasterMuted(muted)
+    }
+
+    func appendBuiltin(_ sampleBuffer: CMSampleBuffer, _ time: CMTime, delay: Double = 0) {
+        mixer.appendBuiltin(sampleBuffer, time, delay: delay)
+    }
+
+    func appendBuffered(cameraId: UUID, _ sampleBuffer: CMSampleBuffer) {
+        mixer.appendBuffered(cameraId: cameraId, sampleBuffer)
+    }
+
+    func capture(id: String, start: Int64, count: Int) -> Result<[Float], AudioMixerCaptureError> {
+        mixer.capture(id: id, start: start, count: count)
+    }
+
+    func renderNextBlock(now: CMTime) -> (
+        presentationTimeStamp: CMTime,
+        buffer: AVAudioPCMBuffer,
+        recordingBuffer: AVAudioPCMBuffer?
+    )? {
+        defer {
+            if !mixer.isTransitioning {
+                retained.removeAll()
+            }
+        }
+        return mixer.renderNextBlock(now: now)
+    }
+}
+
+private func waitForMixerUpdate(_ preparation: AudioMixerPreparation) -> Bool {
+    let deadline = ContinuousClock.now + .seconds(5)
+    while deadline > .now {
+        if processorPipelineQueue.sync(execute: { preparation.adopt() }) {
+            return true
+        }
+        Thread.sleep(forTimeInterval: 0.01)
+    }
+    return false
 }
 
 private func dynamicsFixture(_ frame: Int) -> Float {
