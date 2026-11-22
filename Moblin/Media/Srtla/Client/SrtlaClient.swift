@@ -241,12 +241,23 @@ class SrtlaClient: NSObject, @unchecked Sendable {
     }
 
     func handleLocalPacket(packet: Data) {
-        guard let connection = selectRemoteConnection() else {
+        let delivering = selectRemoteConnection(deliveringOnly: true)
+        if delivering == nil {
+            for connection in remoteConnections {
+                connection.resumeReconnect()
+            }
+        }
+        guard let connection = delivering ?? selectRemoteConnection() else {
             return
         }
         connection.sendSrtPacket(packet: packet)
         if isSrtDataPacket(packet: packet) {
             let now = ContinuousClock.now
+            if delivering != nil {
+                for remoteConnection in remoteConnections where remoteConnection !== connection {
+                    remoteConnection.sendProbationProbe(packet: packet, now: now)
+                }
+            }
             if latestFlushDataPacketsTime.duration(to: now) > .milliseconds(15) {
                 latestFlushDataPacketsTime = now
                 for remoteConnection in remoteConnections {
@@ -415,10 +426,10 @@ class SrtlaClient: NSObject, @unchecked Sendable {
         state = .idle
     }
 
-    private func selectRemoteConnection() -> RemoteConnection? {
+    private func selectRemoteConnection(deliveringOnly: Bool = false) -> RemoteConnection? {
         var selectedConnection: RemoteConnection?
         var selectedScore = -1
-        for connection in remoteConnections {
+        for connection in remoteConnections where !deliveringOnly || connection.hasDeliveredData {
             let score = connection.score()
             if score > selectedScore {
                 selectedConnection = connection
