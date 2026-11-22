@@ -1,44 +1,38 @@
 import Foundation
 
 struct SrtlaLinkRecovery {
-    private var noDataStops = 0
-    private var pending: Set<UInt32> = []
+    private(set) var noDataStops: Int
     private var nextProbe: ContinuousClock.Instant?
     private(set) var hasDelivered = false
     private(set) var sentData = false
 
+    init(noDataStops: Int = 0) {
+        self.noDataStops = noDataStops
+    }
+
     mutating func startSocket() {
         hasDelivered = false
         sentData = false
-        pending.removeAll(keepingCapacity: true)
         nextProbe = nil
     }
 
-    mutating func sent(sequence: UInt32) {
-        guard !hasDelivered else {
-            return
-        }
+    mutating func sent() {
         sentData = true
-        if pending.count >= 128 {
-            pending.removeAll(keepingCapacity: true)
-        }
-        pending.insert(sequence)
     }
 
-    mutating func acknowledge(sequence: UInt32) {
-        guard pending.contains(sequence) else {
+    mutating func acknowledge() {
+        guard sentData else {
             return
         }
         hasDelivered = true
         noDataStops = 0
-        pending.removeAll(keepingCapacity: true)
     }
 
     mutating func takeProbe(now: ContinuousClock.Instant) -> Bool {
         guard !hasDelivered, nextProbe.map({ now >= $0 }) ?? true else {
             return false
         }
-        nextProbe = now + .milliseconds(200)
+        nextProbe = now + .milliseconds(20)
         return true
     }
 

@@ -36,6 +36,13 @@ protocol RemoteConnectionDelegate: AnyObject {
     func remoteConnectionOnMoblinkReconnect(connection: RemoteConnection)
 }
 
+protocol SrtlaConnectTimer {
+    func startSingleShot(timeout: Double, handler: @escaping @Sendable () -> Void)
+    func stop()
+}
+
+extension SimpleTimer: SrtlaConnectTimer {}
+
 class RemoteConnection: @unchecked Sendable {
     var type: NWInterface.InterfaceType?
     private var connection: NWConnection? {
@@ -45,11 +52,11 @@ class RemoteConnection: @unchecked Sendable {
         }
     }
 
-    private var connectTimer = SimpleTimer(queue: srtlaClientQueue)
+    private let connectTimer: any SrtlaConnectTimer
     private var keepaliveTimer = SimpleTimer(queue: srtlaClientQueue)
     private var latestReceivedTime = ContinuousClock.now
-    private var waitingToReconnect = false
-    private var recovery = SrtlaLinkRecovery()
+    private(set) var waitingToReconnect = false
+    private var recovery: SrtlaLinkRecovery
     private var packetsInFlight: Set<UInt32> = []
     private var windowSize: Int = 0
     private var hasFullGroupId: Bool = false
@@ -106,8 +113,12 @@ class RemoteConnection: @unchecked Sendable {
         networkInterfaces: SrtlaNetworkInterfaces,
         priority: Float,
         relayId: UUID? = nil,
-        relayName: String? = nil
+        relayName: String? = nil,
+        noDataStops: Int = 0,
+        connectTimer: any SrtlaConnectTimer = SimpleTimer(queue: srtlaClientQueue)
     ) {
+        self.connectTimer = connectTimer
+        recovery = SrtlaLinkRecovery(noDataStops: noDataStops)
         self.type = type
         self.mpegtsPacketsPerPacket = mpegtsPacketsPerPacket
         self.packetPadding = packetPadding
@@ -170,8 +181,11 @@ class RemoteConnection: @unchecked Sendable {
         guard waitingToReconnect, isEnabled() else {
             return
         }
-        connectTimer.stop()
-        startInternal()
+        finishReconnect()
+    }
+
+    var noDataStops: Int {
+        recovery.noDataStops
     }
 
     var hasDeliveredData: Bool {
@@ -182,7 +196,7 @@ class RemoteConnection: @unchecked Sendable {
         guard type != nil, score() >= 0, !hasDeliveredData, recovery.takeProbe(now: now) else {
             return
         }
-        sendPacket(packet: packet)
+        sendSrtPacket(packet: packet)
     }
 
     func score() -> Int {
@@ -326,19 +340,28 @@ class RemoteConnection: @unchecked Sendable {
         }
     }
 
-    private func reconnect(reason: String, delay: Double = 0) {
+    func reconnect(reason: String, delay: Double = 0) {
+        stop(reason: reason)
+        waitingToReconnect = true
+        if delay > 0 {
+            connectTimer.startSingleShot(timeout: delay) { [weak self] in
+                self?.finishReconnect()
+            }
+        } else {
+            finishReconnect()
+        }
+    }
+
+    private func finishReconnect() {
+        guard waitingToReconnect else {
+            return
+        }
+        waitingToReconnect = false
+        connectTimer.stop()
         if isMoblink() {
             delegate?.remoteConnectionOnMoblinkReconnect(connection: self)
         } else {
-            stop(reason: reason)
-            if delay > 0 {
-                waitingToReconnect = true
-                connectTimer.startSingleShot(timeout: delay) { [weak self] in
-                    self?.startInternal()
-                }
-            } else {
-                startInternal()
-            }
+            startInternal()
         }
     }
 
@@ -373,7 +396,7 @@ class RemoteConnection: @unchecked Sendable {
             let sequence = getSrtSequenceNumber(packet: packet)
             packetsInFlight.insert(sequence)
             if type != nil {
-                recovery.sent(sequence: sequence)
+                recovery.sent()
             }
             var numberOfMpegTsPackets = (packet.count - 16) / MpegTsPacket.size
             if packetPadding, numberOfMpegTsPackets < mpegtsPacketsPerPacket {
@@ -452,14 +475,14 @@ class RemoteConnection: @unchecked Sendable {
     }
 
     private func handleSrtlaAck(packet: Data) {
-        guard (packet.count % 4) == 0 else {
+        guard packet.count >= 8, (packet.count % 4) == 0 else {
             return
+        }
+        if state == .registered {
+            recovery.acknowledge()
         }
         for offset in stride(from: 4, to: packet.count, by: 4) {
             let sequence = packet.getUInt32Be(offset: offset)
-            if state == .registered {
-                recovery.acknowledge(sequence: sequence)
-            }
             delegate?.remoteConnectionOnSrtlaAck(sn: sequence)
         }
     }
