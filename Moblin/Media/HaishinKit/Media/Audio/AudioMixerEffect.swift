@@ -58,8 +58,26 @@ struct AudioMixerEqualizer: Equatable {
     var bandwidth: Float = 1
 }
 
+struct AudioMixerCompressor: Equatable {
+    var threshold: Float = -24
+    var headroom: Float = 6
+    var attack: Float = 0.003
+    var release: Float = 0.12
+    var makeupGain: Float = 0
+}
+
 enum AudioMixerEffectSettings: Equatable {
     case equalizer(AudioMixerEqualizer)
+    case compressor(AudioMixerCompressor)
+
+    var canUseOnMaster: Bool {
+        switch self {
+        case .equalizer:
+            true
+        case .compressor:
+            false
+        }
+    }
 
     func makeStage() -> (any AudioMixerEffectStage)? {
         switch self {
@@ -71,8 +89,35 @@ enum AudioMixerEffectSettings: Equatable {
                 kAUNBandEQParam_Bandwidth: settings.bandwidth.clamped(to: 0.05 ... 5),
                 kAUNBandEQParam_BypassBand: 0,
             ], numberOfBands: 1, bypassOnFailure: true)
+        case let .compressor(settings):
+            makeAudioMixerDynamics(threshold: settings.threshold,
+                                   headroom: settings.headroom,
+                                   expansionThreshold: -60,
+                                   expansionRatio: 1,
+                                   attack: settings.attack,
+                                   release: settings.release,
+                                   makeupGain: settings.makeupGain)
         }
     }
+}
+
+private func makeAudioMixerDynamics(threshold: Float,
+                                    headroom: Float,
+                                    expansionThreshold: Float,
+                                    expansionRatio: Float,
+                                    attack: Float,
+                                    release: Float,
+                                    makeupGain: Float) -> AudioMixerEffect?
+{
+    AudioMixerEffect(subType: kAudioUnitSubType_DynamicsProcessor, parameters: [
+        kDynamicsProcessorParam_Threshold: threshold.clamped(to: -40 ... 20),
+        kDynamicsProcessorParam_HeadRoom: headroom.clamped(to: 0.1 ... 40),
+        kDynamicsProcessorParam_ExpansionThreshold: expansionThreshold.clamped(to: -80 ... 0),
+        kDynamicsProcessorParam_ExpansionRatio: expansionRatio.clamped(to: 1 ... 50),
+        kDynamicsProcessorParam_AttackTime: attack.clamped(to: 0.0001 ... 0.2),
+        kDynamicsProcessorParam_ReleaseTime: release.clamped(to: 0.01 ... 3),
+        kDynamicsProcessorParam_OverallGain: makeupGain.clamped(to: -40 ... 40),
+    ], bypassOnFailure: true)
 }
 
 final class AudioMixerEffectBuffer {
@@ -98,6 +143,51 @@ final class AudioMixerEffectBuffer {
     }
 }
 
+private final class AudioMixerEffectDelay {
+    private let count: Int
+    private let left: UnsafeMutablePointer<Float>
+    private let right: UnsafeMutablePointer<Float>
+    private let scratch: UnsafeMutablePointer<Float>
+
+    init(count: Int) {
+        self.count = count
+        left = makeAudioMixerSamples(count: count)
+        right = makeAudioMixerSamples(count: count)
+        scratch = makeAudioMixerSamples(count: count)
+    }
+
+    deinit {
+        left.deallocate()
+        right.deallocate()
+        scratch.deallocate()
+    }
+
+    func reset() {
+        left.update(repeating: 0, count: count)
+        right.update(repeating: 0, count: count)
+    }
+
+    func update(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>, delay: Bool) {
+        update(left, history: self.left, delay: delay)
+        update(right, history: self.right, delay: delay)
+    }
+
+    private func update(_ samples: UnsafeMutablePointer<Float>,
+                        history: UnsafeMutablePointer<Float>,
+                        delay: Bool)
+    {
+        let remaining = audioMixerFramesPerBlock - count
+        if delay {
+            scratch.update(from: samples + remaining, count: count)
+            memmove(samples + count, samples, remaining * MemoryLayout<Float>.size)
+            samples.update(from: history, count: count)
+            history.update(from: scratch, count: count)
+        } else {
+            history.update(from: samples + remaining, count: count)
+        }
+    }
+}
+
 final class AudioMixerEffect: AudioMixerEffectStage {
     private(set) var latency: Int64 = 0
     let audioUnit: AudioComponentInstance
@@ -108,6 +198,7 @@ final class AudioMixerEffect: AudioMixerEffectStage {
     private var renderStatus = noErr
     private let bypassOnFailure: Bool
     private var bypassed = false
+    private var dryDelay: AudioMixerEffectDelay?
     private var left: UnsafeMutablePointer<Float>?
     private var right: UnsafeMutablePointer<Float>?
 
@@ -141,6 +232,12 @@ final class AudioMixerEffect: AudioMixerEffectStage {
             logger.info("audio-mixer: Failed to initialize effect \(subType)")
             return nil
         }
+        if bypassOnFailure, latency > 0 {
+            guard latency <= audioMixerFramesPerBlock else {
+                return nil
+            }
+            dryDelay = AudioMixerEffectDelay(count: Int(latency))
+        }
     }
 
     deinit {
@@ -153,6 +250,7 @@ final class AudioMixerEffect: AudioMixerEffectStage {
 
     func reset() {
         bypassed = false
+        dryDelay?.reset()
         resetUnit()
     }
 
@@ -163,6 +261,7 @@ final class AudioMixerEffect: AudioMixerEffectStage {
     @discardableResult
     func process(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>) -> Bool {
         guard !bypassed else {
+            dryDelay?.update(left, right, delay: true)
             return true
         }
         self.left = left
@@ -185,8 +284,9 @@ final class AudioMixerEffect: AudioMixerEffectStage {
             renderStatus = status
         }
         guard status == noErr else {
-            if bypassOnFailure, latency == 0 {
+            if bypassOnFailure {
                 bypassed = true
+                dryDelay?.update(left, right, delay: true)
                 return true
             }
             left.update(repeating: 0, count: audioMixerFramesPerBlock)
@@ -194,6 +294,7 @@ final class AudioMixerEffect: AudioMixerEffectStage {
             resetUnit()
             return false
         }
+        dryDelay?.update(left, right, delay: false)
         copyOutput(0, left)
         copyOutput(1, right)
         return true

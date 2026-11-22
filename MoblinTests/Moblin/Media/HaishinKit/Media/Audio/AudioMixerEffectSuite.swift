@@ -31,6 +31,45 @@ struct AudioMixerEffectSuite {
     }
 
     @Test
+    func compressorAttenuatesOnlyTheLouderSignal() throws {
+        let compressor = try #require(AudioMixerEffectSettings.compressor(.init()).makeStage())
+        let quiet = try #require(AudioMixerEffectSettings.compressor(.init()).makeStage())
+        var loudPeak: Float = 0
+        var quietPeak: Float = 0
+        for block in 0 ..< 20 {
+            var left = createBlock(block) { createSine(0, $0) }
+            var right = left
+            var quietLeft = left.map { $0 * 0.04 }
+            var quietRight = quietLeft
+            try #require(compressor.process(&left, &right))
+            try #require(quiet.process(&quietLeft, &quietRight))
+            loudPeak = peak(left.suffix(256))
+            quietPeak = peak(quietLeft.suffix(256))
+        }
+        #expect(loudPeak > 0.04 && loudPeak < 0.25)
+        #expect(abs(quietPeak - 0.02) < 0.001)
+    }
+
+    @Test
+    func failedCompressorRetainsDrySignalTiming() throws {
+        let compressor = try #require(AudioMixerEffectSettings.compressor(.init())
+            .makeStage() as? AudioMixerEffect)
+        let latency = Int(compressor.latency)
+        try #require(latency > 0 && latency < audioMixerFramesPerBlock)
+        let previous = createBlock(0) { createNoise(0, $0) }
+        var left = previous
+        var right = previous
+        try #require(compressor.process(&left, &right))
+        AudioUnitUninitialize(compressor.audioUnit)
+        let next = createBlock(1) { createNoise(0, $0) }
+        left = next
+        right = next
+        #expect(compressor.process(&left, &right))
+        let dry = Array(previous.suffix(latency)) + Array(next.dropLast(latency))
+        #expect(left == dry && right == dry)
+    }
+
+    @Test
     func latencyIsImpulseDelay() throws {
         let limiter = try #require(makeAudioMixerLimiter())
         var output: [Float] = []
