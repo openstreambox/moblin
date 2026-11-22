@@ -38,11 +38,15 @@ struct SrtlaLinkRecoverySuite {
     func probationProbesArePacedAndStopOnDelivery() {
         let now = ContinuousClock.now
         var recovery = SrtlaLinkRecovery()
-        #expect(recovery.takeProbe(now: now))
-        #expect(!recovery.takeProbe(now: now + .milliseconds(199)))
-        #expect(recovery.takeProbe(now: now + .milliseconds(200)))
+        let initialProbe = recovery.takeProbe(now: now)
+        #expect(initialProbe)
+        let earlyProbe = recovery.takeProbe(now: now + .milliseconds(199))
+        #expect(!earlyProbe)
+        let nextProbe = recovery.takeProbe(now: now + .milliseconds(200))
+        #expect(nextProbe)
         recovery.sent(sequence: 10)
         recovery.acknowledge(sequence: 10)
-        #expect(!recovery.takeProbe(now: now + .seconds(1)))
+        let probeAfterDelivery = recovery.takeProbe(now: now + .seconds(1))
+        #expect(!probeAfterDelivery)
     }
 }
