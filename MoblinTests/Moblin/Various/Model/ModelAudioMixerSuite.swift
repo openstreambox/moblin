@@ -269,40 +269,57 @@ struct ModelAudioMixerSuite {
     }
 
     @Test
-    func sourceEffectsInFixedOrder() {
+    func sourceEffectsInFixedOrder() throws {
         let effects = SettingsMicsMicEffects()
         #expect(makeAudioMixerSourceEffects(effects: effects).isEmpty)
         effects.deEsser.enabled = true
+        effects.deEsser.frequency = 7000
         effects.compressor.enabled = true
+        effects.compressor.threshold = -18
+        effects.compressor.headroom = 4
+        effects.compressor.attack = 0.01
+        effects.compressor.release = 0.2
+        effects.compressor.makeupGain = 3
         effects.equalizer.enabled = true
         effects.equalizer.gain = -4.5
         effects.expander.enabled = true
+        effects.expander.threshold = -50
+        effects.expander.ratio = 3
         let result = makeAudioMixerSourceEffects(effects: effects)
-        #expect(result.count == 4)
-        guard case .expander = result[0], case let .equalizer(equalizer) = result[1],
-              case .compressor = result[2], case .deEsser = result[3]
-        else {
-            Issue.record("Unexpected order")
-            return
-        }
-        #expect(equalizer.gain == -4.5)
+        try #require(result.count == 4)
+        let expander = AudioMixerExpander(threshold: -50, ratio: 3, attack: 0.003, release: 0.12)
+        #expect(result[0] == .expander(expander))
+        let equalizer = AudioMixerEqualizer(frequency: 1000, gain: -4.5, bandwidth: 1)
+        #expect(result[1] == .equalizer(equalizer))
+        #expect(result[2] == .compressor(AudioMixerCompressor(threshold: -18,
+                                                              headroom: 4,
+                                                              attack: 0.01,
+                                                              release: 0.2,
+                                                              makeupGain: 3)))
+        #expect(result[3] == .deEsser(AudioMixerDeEsserSettings(frequency: 7000,
+                                                                bandwidth: 1,
+                                                                threshold: -24,
+                                                                maximumReduction: 9)))
     }
 
     @Test
-    func outputEffectsAreEqualizersAndDeEsser() {
+    func outputEffectsAreUpToThreeBandsAndDeEsser() throws {
+        func band(_ frequency: Float, enabled: Bool = true) -> SettingsAudioMixerEqualizer {
+            var band = SettingsAudioMixerEqualizer()
+            band.enabled = enabled
+            band.frequency = frequency
+            return band
+        }
         let effects = SettingsAudioOutputEffects()
-        var equalizer = SettingsAudioMixerEqualizer()
-        equalizer.enabled = true
-        var disabled = SettingsAudioMixerEqualizer()
-        disabled.enabled = false
-        effects.equalizers = [equalizer, disabled, equalizer, equalizer]
+        effects.equalizers = [band(100), band(200, enabled: false), band(300), band(400)]
         effects.deEsser.enabled = true
         let result = makeAudioMixerOutputEffects(effects: effects)
-        #expect(result.count == 3)
-        #expect(result.allSatisfy { $0.canUseOnMaster })
-        guard case .deEsser = result.last else {
-            Issue.record("De-esser not last")
-            return
-        }
+        try #require(result.count == 3)
+        #expect(result[0] == .equalizer(AudioMixerEqualizer(frequency: 100, gain: 0, bandwidth: 1)))
+        #expect(result[1] == .equalizer(AudioMixerEqualizer(frequency: 300, gain: 0, bandwidth: 1)))
+        #expect(result[2] == .deEsser(AudioMixerDeEsserSettings()))
+        #expect(!result.contains(.equalizer(AudioMixerEqualizer(frequency: 400, gain: 0, bandwidth: 1))))
+        let onMaster = result.allSatisfy(\.canUseOnMaster)
+        #expect(onMaster)
     }
 }

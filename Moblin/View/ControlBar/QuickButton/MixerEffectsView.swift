@@ -24,8 +24,10 @@ private func formatMilliseconds(_ seconds: Float) -> String {
 }
 
 func makeMixerEqualizerSummary(_ equalizer: SettingsAudioMixerEqualizer) -> String {
-    "\(formatMixerFrequency(equalizer.frequency)), \(formatDb(equalizer.gain)), " +
-        String(localized: "width \(formatOneDecimal(equalizer.bandwidth)) oct")
+    String(localized: """
+    \(formatMixerFrequency(equalizer.frequency)), \(formatDb(equalizer.gain)), \
+    width \(formatOneDecimal(equalizer.bandwidth)) oct
+    """)
 }
 
 private func makeExpanderSummary(_ expander: SettingsAudioMixerExpander) -> String {
@@ -71,7 +73,6 @@ func makeMixerOutputEffectsSummary(_ effects: SettingsAudioOutputEffects) -> Str
     return names.isEmpty ? String(localized: "Off") : names.joined(separator: ", ")
 }
 
-// Magnitude in dB of a peaking filter (RBJ cookbook), as Apple's parametric NBandEQ band.
 func mixerEqualizerResponse(_ equalizers: [SettingsAudioMixerEqualizer], frequency: Double) -> Double {
     var total: Double = 0
     for equalizer in equalizers where equalizer.enabled {

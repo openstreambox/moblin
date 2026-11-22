@@ -206,6 +206,9 @@ struct SettingsSuite {
         #expect(decoded.effects.compressor == mic.effects.compressor)
         #expect(decoded.effects.equalizer == mic.effects.equalizer)
         #expect(!decoded.effects.expander.enabled)
+        decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: Data(#"{"name":"Mic"}"#.utf8))
+        #expect(!decoded.effects.isEnabled)
+        #expect(decoded.effects.compressor == SettingsAudioMixerCompressor())
         let json = #"{"effects":{"deEsser":{"enabled":true}}}"#
         decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: Data(json.utf8))
         #expect(decoded.effects.deEsser.enabled)
