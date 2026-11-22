@@ -351,27 +351,119 @@ private struct MixerSourceSettingsView: View {
     }
 }
 
-private struct MixerAddSourceView: View {
-    let model: Model
-    @ObservedObject var mics: SettingsMics
-    @ObservedObject var modelMic: Mic
-    let current: SettingsMicsMic
+private struct MixerAddSourceRowView: View {
+    let image: String
+    let text: String
+    var effects: SettingsMicsMicEffects?
+    let action: () -> Void
 
     var body: some View {
-        let addable = mics.mics.filter { isAudioMicAddable(mic: $0, current: current) }
-        Menu {
-            if addable.isEmpty {
-                Text("No other sources to add")
-            } else {
-                ForEach(addable) { mic in
-                    Button(mic.name) {
+        Button {
+            action()
+        } label: {
+            HStack {
+                IconAndTextView(image: image, text: text)
+                Spacer()
+                if let effects {
+                    MixerEffectsMarkView(effects: effects)
+                }
+            }
+        }
+        .foregroundStyle(.primary)
+        .padding(11)
+    }
+}
+
+private struct MixerAddSourceListView: View {
+    let model: Model
+    @ObservedObject var mics: SettingsMics
+    let current: SettingsMicsMic?
+    let createSource: () -> Void
+    let dismiss: () -> Void
+
+    private func isAddable(_ mic: SettingsMicsMic) -> Bool {
+        guard let current else {
+            return false
+        }
+        return mic.connected && !mic.mixed && isAudioMicMixable(mic: mic, current: current)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                MixerAddSourceRowView(image: "plus.square.dashed",
+                                      text: String(localized: "New source"))
+                {
+                    dismiss()
+                    createSource()
+                }
+                Divider()
+                ForEach(mics.mics.filter(isAddable)) { mic in
+                    MixerAddSourceRowView(image: mixerSourceImage(mic: mic),
+                                          text: mic.name,
+                                          effects: mic.effects)
+                    {
                         model.setMicMixed(mic: mic, mixed: true)
+                        dismiss()
                     }
                 }
             }
-        } label: {
-            Label("Add source", systemImage: "plus")
         }
+        .frame(minWidth: 260)
+        .padding(5)
+    }
+}
+
+private struct MixerAddSourceView: View {
+    let model: Model
+    let mics: SettingsMics
+    let current: SettingsMicsMic?
+    let createSource: () -> Void
+    @State private var presentingAddSource = false
+
+    var body: some View {
+        Button {
+            presentingAddSource = true
+        } label: {
+            Label("Add to mix", systemImage: "plus")
+        }
+        .popover(isPresented: $presentingAddSource) {
+            MixerAddSourceListView(model: model, mics: mics, current: current, createSource: createSource) {
+                presentingAddSource = false
+            }
+            .presentationCompactAdaptation(.none)
+        }
+    }
+}
+
+private struct MixerNewSourceView: View {
+    let model: Model
+    @ObservedObject var database: Database
+
+    var body: some View {
+        Form {
+            Section {
+                RtmpServerSettingsView(rtmpServer: database.rtmpServer)
+                SrtlaServerSettingsView(srtlaServer: database.srtlaServer)
+                SrtClientSettingsView(srtClient: database.srtClient)
+                RistServerSettingsView(model: model, ristServer: database.ristServer)
+                RtspClientSettingsView(model: model, rtspClient: database.rtspClient)
+                WhipServerSettingsView(whipServer: database.whipServer)
+                WhepClientSettingsView(model: model, whepClient: database.whepClient)
+            } header: {
+                Text("Ingests")
+            } footer: {
+                Text("A new stream is listed under Add to mix once it connects.")
+            }
+            Section {
+                NavigationLink {
+                    MediaPlayersSettingsView(model: model, mediaPlayers: database.mediaPlayers)
+                } label: {
+                    Label("Media players", systemImage: "play.rectangle.on.rectangle")
+                }
+            }
+        }
+        .navigationTitle("New source")
     }
 }
 
@@ -440,6 +532,7 @@ struct QuickButtonMixerView: View {
     @State private var settingsMicId: String?
     @State private var presentingSettings = false
     @State private var swappingMic = false
+    @State private var presentingNewSource = false
 
     private func toggleExpanded(id: String, proxy: ScrollViewProxy) {
         expandedId = expandedId == id ? nil : id
@@ -536,10 +629,9 @@ struct QuickButtonMixerView: View {
                             .id("\(mic.id) gain")
                         }
                     }
-                    MixerAddSourceView(model: model,
-                                       mics: mics,
-                                       modelMic: modelMic,
-                                       current: current ?? modelMic.current)
+                    MixerAddSourceView(model: model, mics: mics, current: current) {
+                        presentingNewSource = true
+                    }
                     MixerSyncLinkView(model: model)
                 } header: {
                     Text("Mixed in")
@@ -574,6 +666,9 @@ struct QuickButtonMixerView: View {
             }
         }
         .navigationTitle("Audio")
+        .navigationDestination(isPresented: $presentingNewSource) {
+            MixerNewSourceView(model: model, database: model.database)
+        }
         .navigationDestination(isPresented: $presentingSettings) {
             if let mic = findMixerSource(id: settingsMicId, sources: mixerSources()) {
                 MixerSourceSettingsView(model: model, mic: mic, modelMic: modelMic)
