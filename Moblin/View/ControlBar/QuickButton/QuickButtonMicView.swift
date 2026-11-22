@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-private struct QuickButtonMicMicView: View {
+struct QuickButtonMicMicView: View {
     let model: Model
     @ObservedObject var mic: SettingsMicsMic
     @ObservedObject var modelMic: Mic

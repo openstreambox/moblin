@@ -83,6 +83,7 @@ private struct MixerSourceHeaderView: View {
     @ObservedObject var mic: SettingsMicsMic
     let main: Bool
     var expanded: Bool?
+    var swapMic: (() -> Void)?
 
     var body: some View {
         HStack {
@@ -90,8 +91,7 @@ private struct MixerSourceHeaderView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(mic.name)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.85)
+                        .lineLimit(2)
                     Spacer()
                     if mic.muted, expanded != true {
                         Text("Muted")
@@ -104,7 +104,7 @@ private struct MixerSourceHeaderView: View {
                             .lineLimit(1)
                             .fixedSize()
                     }
-                    if let expanded {
+                    if let expanded, swapMic == nil {
                         Image(systemName: expanded ? "chevron.up" : "chevron.down")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
@@ -122,6 +122,23 @@ private struct MixerSourceHeaderView: View {
                     }
                 }
             }
+            if let swapMic {
+                Button {
+                    swapMic()
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .frame(width: mixerIconSize, height: mixerIconSize)
+                        .foregroundStyle(.blue)
+                        .background {
+                            Circle()
+                                .foregroundStyle(Color(UIColor.tertiarySystemFill))
+                        }
+                        .frame(width: 44, height: 44)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Change main mic")
+            }
         }
     }
 }
@@ -133,9 +150,10 @@ private struct MixerSourceView: View {
     let expanded: Bool
     let toggleExpanded: () -> Void
     let showSettings: () -> Void
+    var swapMic: (() -> Void)?
 
     var body: some View {
-        MixerSourceHeaderView(model: model, mic: mic, main: main, expanded: expanded)
+        MixerSourceHeaderView(model: model, mic: mic, main: main, expanded: expanded, swapMic: swapMic)
             .contentShape(Rectangle())
             .onTapGesture {
                 toggleExpanded()
@@ -421,6 +439,7 @@ struct QuickButtonMixerView: View {
     @State private var outputExpanded = false
     @State private var settingsMicId: String?
     @State private var presentingSettings = false
+    @State private var swappingMic = false
 
     private func toggleExpanded(id: String, proxy: ScrollViewProxy) {
         expandedId = expandedId == id ? nil : id
@@ -460,10 +479,53 @@ struct QuickButtonMixerView: View {
         ScrollViewReader { proxy in
             Form {
                 Section {
-                    ForEach(sources) { mic in
+                    if let current {
+                        MixerSourceView(model: model,
+                                        mic: current,
+                                        main: true,
+                                        expanded: expandedId == current.id,
+                                        toggleExpanded: { toggleExpanded(id: current.id, proxy: proxy) },
+                                        showSettings: { showSettings(mic: current) },
+                                        swapMic: {
+                                            swappingMic.toggle()
+                                            expandedId = nil
+                                        })
+                        if expandedId == current.id {
+                            MixerSourceGainView(model: model, mic: current) {
+                                showSettings(mic: current)
+                            }
+                            .id("\(current.id) gain")
+                        }
+                    }
+                    if swappingMic || current == nil {
+                        ForEach(mics.mics) { mic in
+                            QuickButtonMicMicView(model: model, mic: mic, modelMic: modelMic)
+                                .deleteDisabled(mic == modelMic.current)
+                        }
+                        .onDelete { offsets in
+                            mics.mics.remove(atOffsets: offsets)
+                        }
+                        .onMove { froms, to in
+                            mics.mics.move(fromOffsets: froms, toOffset: to)
+                        }
+                    }
+                } header: {
+                    HStack {
+                        Text("Mic")
+                        Spacer()
+                        if swappingMic, current != nil {
+                            Button("Done") {
+                                swappingMic = false
+                            }
+                            .textCase(nil)
+                        }
+                    }
+                }
+                Section {
+                    ForEach(modelMic.mixed) { mic in
                         MixerSourceView(model: model,
                                         mic: mic,
-                                        main: mic == current,
+                                        main: false,
                                         expanded: expandedId == mic.id,
                                         toggleExpanded: { toggleExpanded(id: mic.id, proxy: proxy) },
                                         showSettings: { showSettings(mic: mic) })
@@ -479,6 +541,8 @@ struct QuickButtonMixerView: View {
                                        modelMic: modelMic,
                                        current: current ?? modelMic.current)
                     MixerSyncLinkView(model: model)
+                } header: {
+                    Text("Mixed in")
                 } footer: {
                     Text("Tap for gain. Swipe for mute or settings.")
                 }
@@ -504,6 +568,9 @@ struct QuickButtonMixerView: View {
                 if let settingsMicId, !ids.contains(settingsMicId) {
                     presentingSettings = false
                 }
+            }
+            .onChange(of: modelMic.current.id) { _ in
+                swappingMic = false
             }
         }
         .navigationTitle("Audio")
