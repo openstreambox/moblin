@@ -165,8 +165,8 @@ struct AudioMixerSuite {
         #expect(output.isContinuous)
     }
 
-    @Test
-    func disableCanFollowAnEffectEditWithoutEnoughInputForTheNewLookahead() throws {
+    @Test(arguments: [false, true])
+    func disableCanFollowAnEffectEditWithoutEnoughInputForTheNewLookahead(starveOldChain: Bool) throws {
         let preparation = AudioMixerPreparation()
         let format = createFormat(.pcmFormatFloat32, 2, false)
         let dry = createSettings()
@@ -211,7 +211,8 @@ struct AudioMixerSuite {
         preparation.submit(sources: nil, master: [])
         #expect(!processorPipelineQueue.sync { preparation.adopt() })
         for tick in 9 ... 11 {
-            render(tick: tick, inputTick: tick - 2, extraLatency: latency)
+            let inputTick = starveOldChain && tick == 11 ? nil : tick - 2
+            render(tick: tick, inputTick: inputTick, extraLatency: latency)
         }
         #expect(processorPipelineQueue.sync { preparation.mixer?.isTransitioning == false })
         for tick in 12 ..< 16 {

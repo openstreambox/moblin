@@ -198,6 +198,9 @@ final class AudioMixerSource {
                 diagnostics.record(1)
                 fadeOut(min(end, audioMixerFramesPerBlock))
                 isSilent = true
+                if let pendingEffects {
+                    activateEffects(pendingEffects)
+                }
             } else if let pendingEffects {
                 effectTransitionBlocksRemaining -= 1
                 if effectTransitionBlocksRemaining == 0 {
