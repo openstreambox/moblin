@@ -4,6 +4,17 @@ import Testing
 
 struct AudioMixerEffectSuite {
     @Test
+    func retiringAChainReleasesItsStagesOnTheEffectsQueue() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let chain = AudioMixerEffectChain([RetirementProbe {
+                dispatchPrecondition(condition: .onQueue(AudioMixerMaintenance.shared.queue))
+                continuation.resume()
+            }])
+            withExtendedLifetime(chain) {}
+        }
+    }
+
+    @Test
     func equalizerAttenuatesItsCenterFrequency() throws {
         let equalizer = try #require(AudioMixerEffectSettings.equalizer(.init(gain: -12)).makeStage())
         #expect(equalizer.latency == 0)
@@ -63,13 +74,22 @@ struct AudioMixerEffectSuite {
         var left = previous
         var right = previous
         try #require(compressor.process(&left, &right))
+        let lastWet = try #require(left.last)
         AudioUnitUninitialize(compressor.audioUnit)
         let next = createBlock(1) { createNoise(0, $0) }
         left = next
         right = next
         #expect(compressor.process(&left, &right))
         let dry = Array(previous.suffix(latency)) + Array(next.dropLast(latency))
-        #expect(left == dry && right == dry)
+        #expect(abs(left[0] - lastWet) < 1e-6)
+        #expect(left == right)
+        #expect(left.dropFirst(256) == dry.dropFirst(256))
+        let following = createBlock(2) { createNoise(0, $0) }
+        left = following
+        right = following
+        #expect(compressor.process(&left, &right))
+        #expect(left == Array(next.suffix(latency)) + Array(following.dropLast(latency)))
+        #expect(left == right)
     }
 
     @Test
@@ -161,6 +181,25 @@ struct AudioMixerEffectSuite {
         let silence = [Float](repeating: 0, count: 2 * audioMixerFramesPerBlock)
         #expect(failed == silence)
         #expect(left + right == silence)
+    }
+}
+
+private final class RetirementProbe: AudioMixerEffectStage {
+    let latency: Int64 = 0
+    private let onRelease: () -> Void
+
+    init(_ onRelease: @escaping () -> Void) {
+        self.onRelease = onRelease
+    }
+
+    deinit {
+        onRelease()
+    }
+
+    func reset() {}
+
+    func process(_: UnsafeMutablePointer<Float>, _: UnsafeMutablePointer<Float>) -> Bool {
+        true
     }
 }
 

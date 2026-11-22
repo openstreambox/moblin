@@ -179,6 +179,8 @@ final class AudioUnit: NSObject, @unchecked Sendable {
     private var builtinDelay = 0.0
     private var builtinNumberOfChannels = 0
     private var mixer: AudioMixer?
+    private var mixerStereo = false
+    private let mixerPreparation = AudioMixerPreparation()
     private let mixerTimer = SimpleTimer(queue: processorPipelineQueue)
     private var latestMixerLogTime = ContinuousClock.now
 
@@ -398,7 +400,11 @@ final class AudioUnit: NSObject, @unchecked Sendable {
                        masterEffects: [AudioMixerEffectSettings])
     {
         processorPipelineQueue.async {
-            self.setMixedAudioInternal(sources: sources, stereo: stereo, masterEffects: masterEffects)
+            self.mixerStereo = stereo
+            self.mixer?.setStereo(stereo)
+        }
+        mixerPreparation.submit(sources: sources, master: masterEffects) { [weak self] configuration in
+            self?.setMixedAudioInternal(configuration)
         }
     }
 
@@ -469,26 +475,23 @@ final class AudioUnit: NSObject, @unchecked Sendable {
         session.automaticallyConfiguresApplicationAudioSession = false
     }
 
-    private func setMixedAudioInternal(sources: [AudioMixerSourceSettings]?,
-                                       stereo: Bool,
-                                       masterEffects: [AudioMixerEffectSettings])
-    {
-        guard let sources else {
+    private func setMixedAudioInternal(_ configuration: AudioMixerConfiguration?) {
+        guard let configuration else {
             mixer = nil
             updateMixerTimer()
             return
         }
-        if mixer == nil {
+        if let mixer, mixer.configuration.session === configuration.session {
+            mixer.apply(configuration)
+        } else {
             logger.info("audio-unit: Audio mixer enabled")
-            let mixer = AudioMixer()
+            let mixer = AudioMixer(configuration)
+            mixer.setStereo(mixerStereo)
             mixer.setMasterGain(gain)
             mixer.setMasterMuted(muted)
             self.mixer = mixer
             updateMixerTimer()
         }
-        mixer?.setStereo(stereo)
-        mixer?.setSources(sources)
-        mixer?.setMasterEffects(masterEffects)
     }
 
     private func updateMixerTimer() {
@@ -523,14 +526,19 @@ final class AudioUnit: NSObject, @unchecked Sendable {
     }
 
     private func logMixerStats(_ mixer: AudioMixer) {
-        var inputs: [String] = []
-        if let input = mixer.builtinInput {
-            inputs.append("builtin \(input.numberOfSlips) slips, \(input.numberOfResyncs) resyncs")
+        let skips = mixer.numberOfSkips
+        let builtin = mixer.builtinInput.map { ($0.numberOfSlips, $0.numberOfResyncs) }
+        let buffered = mixer.bufferedInputs.mapValues(\.numberOfResyncs)
+        AudioMixerMaintenance.shared.queue.async {
+            var inputs: [String] = []
+            if let (slips, resyncs) = builtin {
+                inputs.append("builtin \(slips) slips, \(resyncs) resyncs")
+            }
+            for (cameraId, resyncs) in buffered {
+                inputs.append("\(cameraId) \(resyncs) resyncs")
+            }
+            logger.debug("audio-mixer: \(skips) skips. \(inputs.joined(separator: ", "))")
         }
-        for (cameraId, input) in mixer.bufferedInputs {
-            inputs.append("\(cameraId) \(input.numberOfResyncs) resyncs")
-        }
-        logger.debug("audio-mixer: \(mixer.numberOfSkips) skips. \(inputs.joined(separator: ", "))")
     }
 
     private func setTalkbackInternal(cameraId: UUID?) {

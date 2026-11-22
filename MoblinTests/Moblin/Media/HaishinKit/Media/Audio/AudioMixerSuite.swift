@@ -116,6 +116,23 @@ struct AudioMixerSuite {
     }
 
     @Test
+    func preparationAppliesTheMostRecentRequestOnTheMixerQueue() async {
+        let preparation = AudioMixerPreparation()
+        let id: String? = await withCheckedContinuation { continuation in
+            AudioMixerMaintenance.shared.queue.async {
+                preparation.submit(sources: [createSettings(id: "older")], master: []) { _ in
+                    Issue.record("A superseded request was applied")
+                }
+                preparation.submit(sources: [createSettings(id: "latest")], master: []) { configuration in
+                    dispatchPrecondition(condition: .onQueue(processorPipelineQueue))
+                    continuation.resume(returning: configuration?.sources.first?.settings.id)
+                }
+            }
+        }
+        #expect(id == "latest")
+    }
+
+    @Test
     func sourceEqualizerCanBeReplacedAndBypassedWithoutADrop() throws {
         let mixer = AudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
@@ -150,20 +167,24 @@ struct AudioMixerSuite {
         let format = createFormat(.pcmFormatFloat32, 2, false)
         let dry = createSettings(sends: (1, 0))
         var wet = dry
-        wet.effects = [.compressor(.init(threshold: 0)), .expander(.init(ratio: 1))]
+        wet.effects = [.compressor(.init()), .expander(.init(ratio: 1))]
         mixer.setSources([dry])
         let output = Output()
         let recording = Output()
+        let dynamics = wet.effects.compactMap { $0.makeStage() }
+        try #require(dynamics.count == 2)
+        let latency = dynamics.reduce(0) { $0 + $1.latency }
+        #expect(latency > 0)
         for tick in 0 ..< 24 {
             if tick == 8 {
                 mixer.setSources([wet])
-                let compressor = try #require(wet.effects[0].makeStage())
-                let expander = try #require(wet.effects[1].makeStage())
-                #expect(mixer.latency == 2400 + compressor.latency + expander.latency)
+                #expect(mixer.latency == 2400 + latency)
             } else if tick == 16 {
                 mixer.setSources([dry])
             }
-            mixer.appendBuiltin(createSampleBuffer(format, tick) { createSine($0, $1) }, createTime(tick))
+            mixer.appendBuiltin(createSampleBuffer(format, tick) { _, frame in
+                dynamicsFixture(frame)
+            }, createTime(tick))
             while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
                 output.append(block)
                 recording.append(block, recording: true)
@@ -173,9 +194,52 @@ struct AudioMixerSuite {
         #expect(mixer.numberOfSkips == 0)
         #expect(output.isContinuous && recording.isContinuous)
         #expect(output.presentationTimeStamps == recording.presentationTimeStamps)
+        let active = 10 * 1024 ..< 14 * 1024
+        let processed = output.samples(0, active)
+        let meanLevel = processed.reduce(Float(0)) { $0 + abs($1) } / Float(processed.count)
+        #expect(meanLevel < 0.4)
         let frames = 1024 ..< 20 * 1024
-        #expect(zip(output.samples(0, frames), createSine(frames)).allSatisfy { abs($0 - $1) < 0.0001 })
+        #expect(zip(output.samples(0, frames), frames).allSatisfy {
+            abs($0) > 0.01 && $0.sign == dynamicsFixture($1).sign
+        })
+        let bypassed = 18 * 1024 ..< 20 * 1024
+        #expect(output.samples(0, bypassed) == bypassed.map(dynamicsFixture))
         #expect(recording.samples(0, frames).allSatisfy { $0 == 0 })
+    }
+
+    @Test
+    func neutralEqualizerEditPreservesVoiceRelease() {
+        let edited = AudioMixer()
+        let reference = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        let voice = createSettings(voice: true)
+        edited.setSources([voice])
+        reference.setSources([voice])
+        let output = Output()
+        let expected = Output()
+        for tick in 0 ..< 28 {
+            if tick == 12 {
+                var wet = voice
+                wet.effects = [.equalizer(.init(gain: 0))]
+                edited.setSources([wet])
+            }
+            let buffer = createSampleBuffer(format, tick) { channel, frame in
+                createSine(channel, frame) * (frame < 10 * 1024 ? 1 : 0.12)
+            }
+            edited.appendBuiltin(buffer, createTime(tick))
+            reference.appendBuiltin(buffer, createTime(tick))
+            while let block = edited.renderNextBlock(now: createTime(tick + 1)) {
+                output.append(block)
+            }
+            while let block = reference.renderNextBlock(now: createTime(tick + 1)) {
+                expected.append(block)
+            }
+        }
+        #expect(output.isContinuous)
+        let release = 10 * 1024 ..< 20 * 1024
+        #expect(zip(output.samples(0, release), expected.samples(0, release)).allSatisfy {
+            abs($0 - $1) < 0.00001
+        })
     }
 
     @Test
@@ -209,6 +273,47 @@ struct AudioMixerSuite {
         #expect(calcMaximumStep(stream.samples(0, frames)) < 0.067)
         #expect(stream.samples(0, 12 * 1024 ..< 13 * 1024).map { abs($0) }.max() ?? 1 < 0.15)
         #expect(stream.samples(0, 18 * 1024 ..< 19 * 1024) == createSine(18 * 1024 ..< 19 * 1024))
+    }
+
+    @Test
+    func masterEqualizerPrimesANarrowLowBandBeforeTheFade() throws {
+        let frequency: Float = 80
+        let band = AudioMixerEqualizer(frequency: frequency, gain: 18, bandwidth: 0.05)
+        let equalizer = try #require(AudioMixerEffectSettings.equalizer(band).makeStage())
+        let mixer = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        mixer.setSources([createSettings()])
+        let output = Output()
+        func sample(_ frame: Int) -> Float {
+            0.1 * sin(Float(frame) * 2 * .pi * frequency / 48000)
+        }
+        for tick in 0 ..< 28 {
+            if tick == 12 {
+                mixer.setMasterEffects([.equalizer(band)])
+            }
+            mixer.appendBuiltin(
+                createSampleBuffer(format, tick) { _, frame in sample(frame) },
+                createTime(tick)
+            )
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                output.append(block)
+            }
+        }
+        let fadeStart = 12 * 1024 - 2400
+        let previous = (fadeStart - 1024 ..< fadeStart).map(sample)
+        var left = previous
+        var right = previous
+        #expect(equalizer.process(&left, &right))
+        let frames = fadeStart ..< fadeStart + 1024
+        let dry = frames.map(sample)
+        left = dry
+        right = dry
+        #expect(equalizer.process(&left, &right))
+        let actual = output.samples(0, frames)
+        let primed = left.indices.map { dry[$0] + (left[$0] - dry[$0]) * Float($0) / 1023 }
+        #expect(zip(actual, primed).allSatisfy { abs($0 - $1) < 0.0001 })
+        #expect(calcMaximumStep(output.samples(0, fadeStart - 1 ..< fadeStart + 4096)) < 0.008)
+        #expect(output.isContinuous)
     }
 
     @Test
@@ -1176,4 +1281,26 @@ private func isCaptureFailure(_ result: Result<[Float], AudioMixerCaptureError>,
         return actual == error
     }
     return false
+}
+
+private extension AudioMixer {
+    convenience init() {
+        self.init(AudioMixerConfiguration(sources: [], master: [], previous: nil))
+    }
+
+    func setSources(_ sources: [AudioMixerSourceSettings]) {
+        apply(AudioMixerConfiguration(sources: sources, master: configuration.masterSettings,
+                                      previous: configuration))
+    }
+
+    func setMasterEffects(_ effects: [AudioMixerEffectSettings]) {
+        apply(AudioMixerConfiguration(sources: configuration.sources.map(\.settings), master: effects,
+                                      previous: configuration))
+    }
+}
+
+private func dynamicsFixture(_ frame: Int) -> Float {
+    let time = Double(frame) / 48000
+    let cycles = time * (650 + 750 * time)
+    return sin(2 * .pi * cycles) < 0 ? -0.5 : 0.5
 }
