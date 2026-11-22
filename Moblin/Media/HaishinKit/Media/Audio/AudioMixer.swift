@@ -19,6 +19,16 @@ struct AudioMixerSourceSettings {
     let delay: Double
     let voice: Bool
     let sends: (stream: Float, recording: Float)
+    var pan: Float = 0
+}
+
+func makeAudioMixerPanGains(pan: Float) -> (left: Float, right: Float) {
+    guard pan != 0 else {
+        return (1, 1)
+    }
+    let angle = (pan.clamped(to: -1 ... 1) + 1) * .pi / 4
+    let scale = Float(2).squareRoot()
+    return (scale * cos(angle), scale * sin(angle))
 }
 
 final class AudioMixerSource {
@@ -34,14 +44,19 @@ final class AudioMixerSource {
     private let effects: [AudioMixerEffect]
     private var gain: Float = 0
     private var currentGain: Float = 0
+    private var pan: (left: Float, right: Float) = (1, 1)
+    private var currentPan: (left: Float, right: Float) = (1, 1)
     private var sends: (stream: Float, recording: Float) = (0, 0)
     private var currentSends: (stream: Float, recording: Float) = (0, 0)
     private var currentDelay: Int64 = 0
     private var numberOfInputChannels = -1
-    private var readChannel = -1
+    private var leftChannel = -1
+    private var rightChannel = -1
     private var isSilent = true
-    private let samples = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
-    private let previousSamples = makeAudioMixerSamples(count: audioMixerFadeFrames)
+    private let left = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
+    private let right = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
+    private let previousLeft = makeAudioMixerSamples(count: audioMixerFadeFrames)
+    private let previousRight = makeAudioMixerSamples(count: audioMixerFadeFrames)
 
     init(settings: AudioMixerSourceSettings, startIndex: Int64) {
         id = settings.id
@@ -55,11 +70,18 @@ final class AudioMixerSource {
         update(settings: settings)
         currentDelay = delay
         currentSends = sends
+        currentPan = pan
     }
 
     deinit {
-        samples.deallocate()
-        previousSamples.deallocate()
+        left.deallocate()
+        right.deallocate()
+        previousLeft.deallocate()
+        previousRight.deallocate()
+    }
+
+    private var isStereo: Bool {
+        leftChannel != rightChannel
     }
 
     var hasDifferentSends: Bool {
@@ -79,6 +101,7 @@ final class AudioMixerSource {
         gain = settings.gain
         delay = Int64((settings.delay * audioMixerSampleRate).rounded())
         sends = settings.sends
+        pan = makeAudioMixerPanGains(pan: settings.pan)
     }
 
     func remove() {
@@ -96,9 +119,11 @@ final class AudioMixerSource {
     {
         let startGain = currentGain
         let startSends = currentSends
+        let startPan = currentPan
         let previousDelay = currentDelay
         currentGain = isRemoved ? 0 : gain
         currentSends = sends
+        currentPan = pan
         guard startGain != 0 || currentGain != 0 else {
             isSilent = true
             return
@@ -128,7 +153,7 @@ final class AudioMixerSource {
             }
             isSilent = false
         } else {
-            read(input, index + effectsLatency, audioMixerFramesPerBlock, samples)
+            read(input, index + effectsLatency, audioMixerFramesPerBlock, left, right)
             if previousDelay != delay {
                 seek(input, blockStart - previousDelay + effectsLatency)
             }
@@ -142,29 +167,30 @@ final class AudioMixerSource {
                 isSilent = true
             }
         }
-        send(to: streamBus, startGain * startSends.stream, currentGain * sends.stream)
+        send(to: streamBus, startPan, startGain * startSends.stream, currentGain * sends.stream)
         if let recordingBus {
-            send(to: recordingBus, startGain * startSends.recording, currentGain * sends.recording)
+            send(to: recordingBus, startPan, startGain * startSends.recording, currentGain * sends.recording)
         }
     }
 
     func captureChannel(_ input: AudioMixerInput) -> Int {
-        pickChannel(input.numberOfChannels)
+        pickChannel(0, input.numberOfChannels)
     }
 
     private func configure(_ numberOfInputChannels: Int) {
         self.numberOfInputChannels = numberOfInputChannels
-        readChannel = pickChannel(numberOfInputChannels)
+        leftChannel = pickChannel(0, numberOfInputChannels)
+        rightChannel = pickChannel(1, numberOfInputChannels)
         isSilent = true
     }
 
-    private func pickChannel(_ numberOfInputChannels: Int) -> Int {
+    private func pickChannel(_ outputChannel: Int, _ numberOfInputChannels: Int) -> Int {
         if let channel {
             channel
-        } else if let inputChannel = channelsMap[0], inputChannel < numberOfInputChannels {
+        } else if let inputChannel = channelsMap[outputChannel], inputChannel < numberOfInputChannels {
             inputChannel
         } else {
-            0
+            min(outputChannel, numberOfInputChannels - 1)
         }
     }
 
@@ -174,18 +200,21 @@ final class AudioMixerSource {
                 effect.reset()
             }
             let primingIndex = index + effectsLatency - Int64(audioMixerFramesPerBlock)
-            read(input, primingIndex, audioMixerFramesPerBlock, samples)
+            read(input, primingIndex, audioMixerFramesPerBlock, left, right)
             guard process() else {
                 return false
             }
         }
-        read(input, index + effectsLatency, audioMixerFramesPerBlock, samples)
+        read(input, index + effectsLatency, audioMixerFramesPerBlock, left, right)
         return process()
     }
 
     private func process() -> Bool {
+        if !effects.isEmpty, !isStereo {
+            right.update(from: left, count: audioMixerFramesPerBlock)
+        }
         for effect in effects {
-            guard effect.process(samples) else {
+            guard effect.process(left, right) else {
                 return false
             }
         }
@@ -195,22 +224,40 @@ final class AudioMixerSource {
     private func read(_ input: AudioMixerInput,
                       _ index: Int64,
                       _ count: Int,
-                      _ samples: UnsafeMutablePointer<Float>)
+                      _ left: UnsafeMutablePointer<Float>,
+                      _ right: UnsafeMutablePointer<Float>)
     {
-        input.read(channel: readChannel, at: index, count: count, into: samples)
+        input.read(channel: leftChannel, at: index, count: count, into: left)
+        if isStereo {
+            input.read(channel: rightChannel, at: index, count: count, into: right)
+        }
     }
 
     private func seek(_ input: AudioMixerInput, _ previousIndex: Int64) {
-        read(input, previousIndex, audioMixerFadeFrames, previousSamples)
-        crossfadeAudioMixerSamples(from: previousSamples, to: samples, output: previousSamples)
-        samples.update(from: previousSamples, count: audioMixerFadeFrames)
+        read(input, previousIndex, audioMixerFadeFrames, previousLeft, previousRight)
+        crossfadeAudioMixerSamples(from: previousLeft, to: left, output: previousLeft)
+        left.update(from: previousLeft, count: audioMixerFadeFrames)
+        if isStereo {
+            crossfadeAudioMixerSamples(from: previousRight, to: right, output: previousRight)
+            right.update(from: previousRight, count: audioMixerFadeFrames)
+        }
     }
 
     private func fadeIn() {
-        fadeInAudioMixerSamples(samples: samples, position: 0, count: audioMixerFadeFrames)
+        fadeInAudioMixerSamples(samples: left, position: 0, count: audioMixerFadeFrames)
+        if isStereo {
+            fadeInAudioMixerSamples(samples: right, position: 0, count: audioMixerFadeFrames)
+        }
     }
 
     private func fadeOut(_ end: Int) {
+        fadeOutBlock(left, end)
+        if isStereo {
+            fadeOutBlock(right, end)
+        }
+    }
+
+    private func fadeOutBlock(_ samples: UnsafeMutablePointer<Float>, _ end: Int) {
         guard end >= audioMixerFadeFrames else {
             samples.update(repeating: 0, count: audioMixerFramesPerBlock)
             return
@@ -220,27 +267,41 @@ final class AudioMixerSource {
         (samples + end).update(repeating: 0, count: audioMixerFramesPerBlock - end)
     }
 
-    private func send(to bus: AudioMixerBus, _ startGain: Float, _ endGain: Float) {
+    private func send(to bus: AudioMixerBus,
+                      _ startPan: (left: Float, right: Float),
+                      _ startGain: Float,
+                      _ endGain: Float)
+    {
+        send(left, bus.left, startGain * startPan.left, endGain * pan.left)
+        send(isStereo ? right : left, bus.right, startGain * startPan.right, endGain * pan.right)
+    }
+
+    private func send(_ samples: UnsafeMutablePointer<Float>,
+                      _ output: UnsafeMutablePointer<Float>,
+                      _ startGain: Float,
+                      _ endGain: Float)
+    {
         var gain = startGain
         var step = (endGain - startGain) / Float(audioMixerFramesPerBlock)
-        let frames = vDSP_Length(audioMixerFramesPerBlock)
-        vDSP_vrampmuladd(samples, 1, &gain, &step, bus.samples, 1, frames)
+        vDSP_vrampmuladd(samples, 1, &gain, &step, output, 1, vDSP_Length(audioMixerFramesPerBlock))
     }
 }
 
 final class AudioMixerBus {
     let buffer: AVAudioPCMBuffer
-    let samples: UnsafeMutablePointer<Float>
+    let left: UnsafeMutablePointer<Float>
+    let right: UnsafeMutablePointer<Float>
     private var gain: Float = 1
     private var targetGain: Float = 1
     private var isMuted = false
 
     init() {
-        let format = AVAudioFormat(standardFormatWithSampleRate: audioMixerSampleRate, channels: 1)!
+        let format = AVAudioFormat(standardFormatWithSampleRate: audioMixerSampleRate, channels: 2)!
         let frames = AVAudioFrameCount(audioMixerFramesPerBlock)
         buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
         buffer.frameLength = buffer.frameCapacity
-        samples = buffer.floatChannelData![0]
+        left = buffer.floatChannelData![0]
+        right = buffer.floatChannelData![1]
     }
 
     func setGain(_ gain: Float) {
@@ -252,7 +313,8 @@ final class AudioMixerBus {
     }
 
     func clear() {
-        vDSP_vclr(samples, 1, vDSP_Length(audioMixerFramesPerBlock))
+        vDSP_vclr(left, 1, vDSP_Length(audioMixerFramesPerBlock))
+        vDSP_vclr(right, 1, vDSP_Length(audioMixerFramesPerBlock))
     }
 
     func skip() {
@@ -263,11 +325,12 @@ final class AudioMixerBus {
         let endGain = isMuted ? 0 : targetGain
         var step = (endGain - gain) / Float(audioMixerFramesPerBlock)
         let frames = vDSP_Length(audioMixerFramesPerBlock)
-        vDSP_vrampmul(samples, 1, &gain, &step, samples, 1, frames)
+        vDSP_vrampmul2(left, right, 1, &gain, &step, left, right, 1, frames)
         gain = endGain
         var low: Float = -1
         var high: Float = 1
-        vDSP_vclip(samples, 1, &low, &high, samples, 1, frames)
+        vDSP_vclip(left, 1, &low, &high, left, 1, frames)
+        vDSP_vclip(right, 1, &low, &high, right, 1, frames)
     }
 }
 

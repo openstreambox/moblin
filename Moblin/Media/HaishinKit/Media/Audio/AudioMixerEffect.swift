@@ -21,10 +21,12 @@ final class AudioMixerEffect {
     private(set) var latency: Int64 = 0
     let audioUnit: AudioComponentInstance
     private let output: UnsafeMutableAudioBufferListPointer
-    private let outputSamples: UnsafeMutablePointer<Float>
+    private let outputLeft: UnsafeMutablePointer<Float>
+    private let outputRight: UnsafeMutablePointer<Float>
     private var timeStamp = AudioTimeStamp()
     private var renderStatus = noErr
-    private var samples: UnsafeMutablePointer<Float>?
+    private var left: UnsafeMutablePointer<Float>?
+    private var right: UnsafeMutablePointer<Float>?
 
     init?(subType: OSType, parameters: [AudioUnitParameterID: AudioUnitParameterValue] = [:]) {
         var description = AudioComponentDescription(
@@ -43,8 +45,9 @@ final class AudioMixerEffect {
             return nil
         }
         self.audioUnit = audioUnit
-        output = AudioBufferList.allocate(maximumBuffers: 1)
-        outputSamples = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
+        output = AudioBufferList.allocate(maximumBuffers: 2)
+        outputLeft = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
+        outputRight = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
         timeStamp.mFlags = .sampleTimeValid
         guard initialize(parameters) else {
             logger.info("audio-mixer: Failed to initialize effect \(subType)")
@@ -56,7 +59,8 @@ final class AudioMixerEffect {
         AudioUnitUninitialize(audioUnit)
         AudioComponentInstanceDispose(audioUnit)
         free(output.unsafeMutablePointer)
-        outputSamples.deallocate()
+        outputLeft.deallocate()
+        outputRight.deallocate()
     }
 
     func reset() {
@@ -64,10 +68,12 @@ final class AudioMixerEffect {
     }
 
     @discardableResult
-    func process(_ samples: UnsafeMutablePointer<Float>) -> Bool {
-        self.samples = samples
+    func process(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>) -> Bool {
+        self.left = left
+        self.right = right
         let byteSize = UInt32(audioMixerFramesPerBlock * MemoryLayout<Float>.size)
-        output[0] = AudioBuffer(mNumberChannels: 1, mDataByteSize: byteSize, mData: outputSamples)
+        output[0] = AudioBuffer(mNumberChannels: 1, mDataByteSize: byteSize, mData: outputLeft)
+        output[1] = AudioBuffer(mNumberChannels: 1, mDataByteSize: byteSize, mData: outputRight)
         var flags = AudioUnitRenderActionFlags()
         let status = AudioUnitRender(
             audioUnit,
@@ -83,21 +89,27 @@ final class AudioMixerEffect {
             renderStatus = status
         }
         guard status == noErr else {
-            samples.update(repeating: 0, count: audioMixerFramesPerBlock)
+            left.update(repeating: 0, count: audioMixerFramesPerBlock)
+            right.update(repeating: 0, count: audioMixerFramesPerBlock)
             reset()
             return false
         }
-        if let data = output[0].mData {
-            samples.update(from: data.assumingMemoryBound(to: Float.self), count: audioMixerFramesPerBlock)
-        }
+        copyOutput(0, left)
+        copyOutput(1, right)
         return true
     }
 
     fileprivate func provideInput(_ data: UnsafeMutableAudioBufferListPointer, _ frameCount: UInt32) {
         let byteSize = frameCount * UInt32(MemoryLayout<Float>.size)
         for channel in 0 ..< data.count {
-            data[channel].mData = UnsafeMutableRawPointer(samples)
+            data[channel].mData = UnsafeMutableRawPointer(channel == 0 ? left : right)
             data[channel].mDataByteSize = byteSize
+        }
+    }
+
+    private func copyOutput(_ channel: Int, _ samples: UnsafeMutablePointer<Float>) {
+        if let data = output[channel].mData {
+            samples.update(from: data.assumingMemoryBound(to: Float.self), count: audioMixerFramesPerBlock)
         }
     }
 
@@ -109,7 +121,7 @@ final class AudioMixerEffect {
             mBytesPerPacket: 4,
             mFramesPerPacket: 1,
             mBytesPerFrame: 4,
-            mChannelsPerFrame: 1,
+            mChannelsPerFrame: 2,
             mBitsPerChannel: 32,
             mReserved: 0
         )
