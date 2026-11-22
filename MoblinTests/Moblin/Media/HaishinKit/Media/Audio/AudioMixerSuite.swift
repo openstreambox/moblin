@@ -166,6 +166,65 @@ struct AudioMixerSuite {
     }
 
     @Test
+    func disableCanFollowAnEffectEditWithoutEnoughInputForTheNewLookahead() throws {
+        let preparation = AudioMixerPreparation()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        let dry = createSettings()
+        var wet = dry
+        wet.effects = Array(repeating: .compressor(.init()), count: 3)
+        let stages = wet.effects.compactMap { $0.makeStage() }
+        try #require(stages.count == wet.effects.count)
+        let latency = stages.reduce(Int64(0)) { $0 + $1.latency }
+        try #require(latency > 352 && latency <= 1024)
+
+        preparation.submit(sources: [dry], master: [])
+        try #require(waitForMixerUpdate(preparation))
+        let output = Output()
+        func render(tick: Int, inputTick: Int?, extraLatency: Int64) {
+            processorPipelineQueue.sync {
+                guard let mixer = preparation.mixer else {
+                    Issue.record("The mixer disappeared before disable was adopted")
+                    return
+                }
+                if let inputTick {
+                    let buffer = createSampleBuffer(format, inputTick) { _, _ in 0.5 }
+                    mixer.appendBuiltin(buffer, createTime(inputTick))
+                }
+                let now = createTime(tick + 1) + CMTime(value: extraLatency, timescale: 48000)
+                while let block = mixer.renderNextBlock(now: now) {
+                    output.append(block)
+                }
+                preparation.finishTransition()
+            }
+        }
+        for tick in 0 ..< 8 {
+            render(tick: tick, inputTick: tick == 7 ? nil : tick, extraLatency: 0)
+        }
+
+        preparation.submit(sources: [wet], master: [])
+        try #require(waitForMixerUpdate(preparation))
+        render(tick: 8, inputTick: nil, extraLatency: latency)
+        #expect(processorPipelineQueue.sync { preparation.mixer?.isTransitioning == true })
+        let firstWait = 8 * 1024 - 2400
+        #expect(output.samples(0, firstWait ..< firstWait + 256).allSatisfy { $0 == 0.5 })
+
+        preparation.submit(sources: nil, master: [])
+        #expect(!processorPipelineQueue.sync { preparation.adopt() })
+        for tick in 9 ... 11 {
+            render(tick: tick, inputTick: tick - 2, extraLatency: latency)
+        }
+        #expect(processorPipelineQueue.sync { preparation.mixer?.isTransitioning == false })
+        for tick in 12 ..< 16 {
+            render(tick: tick, inputTick: tick - 2, extraLatency: latency)
+        }
+        #expect(output.isContinuous)
+        #expect(calcMaximumStep(output.samples(0, firstWait ..< output.end)) < 0.004)
+        #expect(output.samples(0, output.end - 1024 ..< output.end).allSatisfy { $0 == 0 })
+        try #require(waitForMixerUpdate(preparation))
+        #expect(processorPipelineQueue.sync { preparation.mixer == nil })
+    }
+
+    @Test
     func sourceEqualizerCanBeReplacedAndBypassedWithoutADrop() throws {
         let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
@@ -315,8 +374,10 @@ struct AudioMixerSuite {
         let equalizer = try #require(AudioMixerEffectSettings.equalizer(band).makeStage())
         let mixer = TestAudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)
-        mixer.setSources([createSettings()])
+        let drySource = createSettings(sends: (1, 0.5))
+        mixer.setSources([drySource])
         let output = Output()
+        let recording = Output()
         func sample(_ frame: Int) -> Float {
             0.1 * sin(Float(frame) * 2 * .pi * frequency / 48000)
         }
@@ -325,7 +386,7 @@ struct AudioMixerSuite {
                 if onMaster {
                     mixer.setMasterEffects([.equalizer(band)])
                 } else {
-                    var source = createSettings()
+                    var source = drySource
                     source.effects = [.equalizer(band)]
                     mixer.setSources([source])
                 }
@@ -335,7 +396,9 @@ struct AudioMixerSuite {
                 createTime(tick)
             )
             while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                try #require(block.recordingBuffer != nil)
                 output.append(block)
+                recording.append(block, recording: true)
             }
         }
         let fadeStart = 12 * 1024 - 2400
@@ -353,7 +416,12 @@ struct AudioMixerSuite {
         let maximumError = zip(actual, primed).map { abs($0 - $1) }.max()
         #expect((maximumError ?? 1) < 0.0001)
         #expect(calcMaximumStep(output.samples(0, fadeStart - 1 ..< fadeStart + 4096)) < 0.008)
-        #expect(output.isContinuous)
+        let recorded = recording.samples(0, frames)
+        let recordingError = zip(recorded, primed).map { abs($0 - 0.5 * $1) }.max()
+        #expect((recordingError ?? 1) < 0.0001)
+        #expect(calcMaximumStep(recording.samples(0, fadeStart - 1 ..< fadeStart + 4096)) < 0.004)
+        #expect(output.isContinuous && recording.isContinuous)
+        #expect(output.presentationTimeStamps == recording.presentationTimeStamps)
     }
 
     @Test

@@ -47,6 +47,7 @@ final class AudioMixerSource {
     let voice: AudioMixerEffectChain
     private var effectAddress: Unmanaged<AudioMixerEffectChain>
     private var pendingEffectAddress: Unmanaged<AudioMixerEffectChain>?
+    private var effectTransitionBlocksRemaining = 0
 
     private var effects: AudioMixerEffectChain {
         effectAddress.takeUnretainedValue()
@@ -122,6 +123,7 @@ final class AudioMixerSource {
         sends = prepared.settings.sends
         pan = prepared.pan
         pendingEffectAddress = effects === prepared.effects ? nil : .passUnretained(prepared.effects)
+        effectTransitionBlocksRemaining = 4
     }
 
     func remove() {
@@ -196,6 +198,13 @@ final class AudioMixerSource {
                 diagnostics.record(1)
                 fadeOut(min(end, audioMixerFramesPerBlock))
                 isSilent = true
+            } else if let pendingEffects {
+                effectTransitionBlocksRemaining -= 1
+                if effectTransitionBlocksRemaining == 0 {
+                    fadeOut(audioMixerFramesPerBlock)
+                    activateEffects(pendingEffects)
+                    isSilent = true
+                }
             }
         }
         send(to: streamBus, startPan, startGain * startSends.stream, currentGain * sends.stream)
