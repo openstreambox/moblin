@@ -13,6 +13,9 @@ struct QuickButtonMicMicView: View {
             Text(mic.name)
                 .lineLimit(1)
             Spacer()
+            if model.database.debug.audioMixer {
+                MixerEffectsMarkView(effects: mic.effects)
+            }
             Image(systemName: "checkmark")
                 .foregroundStyle(mic == modelMic.current ? .blue : .clear)
                 .bold()
