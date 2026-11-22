@@ -30,7 +30,7 @@ class SrtlaNetworkInterfaces {
 let srtlaClientQueue = DispatchQueue(label: "com.eerimoq.srtla-client")
 
 class SrtlaClient: NSObject, @unchecked Sendable {
-    private var relayNoDataStops: [UUID: Int] = [:]
+    private var relayReconnectStates: [UUID: SrtlaReconnectState] = [:]
     private var remoteConnections: [RemoteConnection] = []
     private var localListener: LocalListener?
     private weak let delegate: (any SrtlaDelegate)?
@@ -142,7 +142,7 @@ class SrtlaClient: NSObject, @unchecked Sendable {
             self.stopListener()
             self.cancelConnectTimer()
             self.state = .idle
-            self.relayNoDataStops.removeAll()
+            self.relayReconnectStates.removeAll()
             self.networkPathMonitor.cancel()
         }
     }
@@ -163,14 +163,9 @@ class SrtlaClient: NSObject, @unchecked Sendable {
                 networkInterfaces: self.networkInterfaces,
                 priority: self.getRelayConnectionPriority(relayId: id),
                 relayId: id,
-                relayName: name,
-                noDataStops: self.relayNoDataStops.removeValue(forKey: id) ?? 0
+                relayName: name
             )
-            self.startRemote(connection: remoteConnection, host: host, port: port)
-            if let groupId = self.groupId {
-                remoteConnection.register(groupId: groupId)
-            }
-            self.remoteConnections.append(remoteConnection)
+            self.addMoblink(connection: remoteConnection, host: host, port: port, now: .now)
         }
     }
 
@@ -184,9 +179,34 @@ class SrtlaClient: NSObject, @unchecked Sendable {
             else {
                 return
             }
-            self.stopRemote(connection: remoteConnection)
-            self.remoteConnections.removeAll(where: { $0 === remoteConnection })
+            self.removeMoblink(connection: remoteConnection)
         }
+    }
+
+    func addMoblink(
+        connection: RemoteConnection,
+        host: NWEndpoint.Host,
+        port: NWEndpoint.Port,
+        now: ContinuousClock.Instant
+    ) {
+        let reconnectState = connection.relayId.flatMap { relayReconnectStates.removeValue(forKey: $0) }
+        connection.delegate = self
+        connection.start(host: host, port: port, reconnectState: reconnectState, now: now)
+        if let groupId {
+            connection.register(groupId: groupId)
+        }
+        remoteConnections.append(connection)
+    }
+
+    func removeMoblink(connection: RemoteConnection) {
+        if let relayId = connection.relayId {
+            let reconnectState = connection.reconnectState
+            if reconnectState.noDataStops > 0 {
+                relayReconnectStates[relayId] = reconnectState
+            }
+        }
+        stopRemote(connection: connection)
+        remoteConnections.removeAll(where: { $0 === connection })
     }
 
     func setNetworkInterfaceNames(networkInterfaceNames: [SettingsNetworkInterfaceName]) {
@@ -526,7 +546,6 @@ extension SrtlaClient: RemoteConnectionDelegate {
         guard let relayId = connection.relayId else {
             return
         }
-        relayNoDataStops[relayId] = connection.noDataStops
         delegate?.moblinkStreamerRestartTunnel(relayId: relayId)
     }
 }

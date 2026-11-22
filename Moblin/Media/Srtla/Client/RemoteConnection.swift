@@ -43,6 +43,11 @@ protocol SrtlaConnectTimer {
 
 extension SimpleTimer: SrtlaConnectTimer {}
 
+struct SrtlaReconnectState {
+    let noDataStops: Int
+    let deadline: ContinuousClock.Instant?
+}
+
 class RemoteConnection: @unchecked Sendable {
     var type: NWInterface.InterfaceType?
     private var connection: NWConnection? {
@@ -55,8 +60,8 @@ class RemoteConnection: @unchecked Sendable {
     private let connectTimer: any SrtlaConnectTimer
     private var keepaliveTimer = SimpleTimer(queue: srtlaClientQueue)
     private var latestReceivedTime = ContinuousClock.now
-    private(set) var waitingToReconnect = false
-    private var recovery: SrtlaLinkRecovery
+    private var pendingReconnect: (deadline: ContinuousClock.Instant, restartTunnel: Bool)?
+    private var recovery = SrtlaLinkRecovery()
     private var packetsInFlight: Set<UInt32> = []
     private var windowSize: Int = 0
     private var hasFullGroupId: Bool = false
@@ -114,11 +119,9 @@ class RemoteConnection: @unchecked Sendable {
         priority: Float,
         relayId: UUID? = nil,
         relayName: String? = nil,
-        noDataStops: Int = 0,
         connectTimer: any SrtlaConnectTimer = SimpleTimer(queue: srtlaClientQueue)
     ) {
         self.connectTimer = connectTimer
-        recovery = SrtlaLinkRecovery(noDataStops: noDataStops)
         self.type = type
         self.mpegtsPacketsPerPacket = mpegtsPacketsPerPacket
         self.packetPadding = packetPadding
@@ -137,13 +140,25 @@ class RemoteConnection: @unchecked Sendable {
         self.priority = priority
     }
 
-    func start(host: NWEndpoint.Host, port: NWEndpoint.Port) {
+    func start(
+        host: NWEndpoint.Host,
+        port: NWEndpoint.Port,
+        reconnectState: SrtlaReconnectState? = nil,
+        now: ContinuousClock.Instant = .now
+    ) {
         destinationHost = host
         destinationPort = port
+        if let reconnectState {
+            recovery = SrtlaLinkRecovery(noDataStops: reconnectState.noDataStops)
+            if let deadline = reconnectState.deadline, deadline > now {
+                scheduleReconnect(deadline: deadline, now: now, restartTunnel: false)
+                return
+            }
+        }
         startInternal()
     }
 
-    private func startInternal() {
+    func startInternal() {
         guard state == .idle, let destinationHost, let destinationPort else {
             return
         }
@@ -153,7 +168,7 @@ class RemoteConnection: @unchecked Sendable {
         params.requiredInterface = interface
         let socket = NWConnection(host: destinationHost, port: destinationPort, using: params)
         connection = socket
-        waitingToReconnect = false
+        pendingReconnect = nil
         recovery.startSocket()
         socket.stateUpdateHandler = { [weak self, weak socket] state in
             guard let self, let socket, self.connection === socket else {
@@ -169,7 +184,7 @@ class RemoteConnection: @unchecked Sendable {
     func stop(reason: String) {
         let sent = sizeFormatter.string(fromByteCount: Int64(totalDataSentByteCount))
         logger.debug("srtla: \(typeString): Stop with reason: \(reason) (\(sent) sent)")
-        waitingToReconnect = false
+        pendingReconnect = nil
         connection?.forceCancel()
         connection = nil
         dataPacketsToSend.removeAll()
@@ -184,8 +199,12 @@ class RemoteConnection: @unchecked Sendable {
         finishReconnect()
     }
 
-    var noDataStops: Int {
-        recovery.noDataStops
+    var waitingToReconnect: Bool {
+        pendingReconnect != nil
+    }
+
+    var reconnectState: SrtlaReconnectState {
+        SrtlaReconnectState(noDataStops: recovery.noDataStops, deadline: pendingReconnect?.deadline)
     }
 
     var hasDeliveredData: Bool {
@@ -307,10 +326,6 @@ class RemoteConnection: @unchecked Sendable {
         connectTimer.stop()
     }
 
-    private func isMoblink() -> Bool {
-        relayId != nil
-    }
-
     private func handleStateUpdate(to state: NWConnection.State) {
         logger.debug("srtla: \(typeString): State change to \(state)")
         switch state {
@@ -340,11 +355,21 @@ class RemoteConnection: @unchecked Sendable {
         }
     }
 
-    func reconnect(reason: String, delay: Double = 0) {
+    private func reconnect(reason: String, delay: Double = 0, now: ContinuousClock.Instant = .now) {
         stop(reason: reason)
-        waitingToReconnect = true
-        if delay > 0 {
-            connectTimer.startSingleShot(timeout: delay) { [weak self] in
+        scheduleReconnect(deadline: now + .seconds(delay), now: now, restartTunnel: relayId != nil)
+    }
+
+    private func scheduleReconnect(
+        deadline: ContinuousClock.Instant,
+        now: ContinuousClock.Instant,
+        restartTunnel: Bool
+    ) {
+        pendingReconnect = (deadline, restartTunnel)
+        if deadline > now {
+            let remaining = now.duration(to: deadline).components
+            let timeout = Double(remaining.seconds) + Double(remaining.attoseconds) / 1e18
+            connectTimer.startSingleShot(timeout: timeout) { [weak self] in
                 self?.finishReconnect()
             }
         } else {
@@ -353,12 +378,12 @@ class RemoteConnection: @unchecked Sendable {
     }
 
     private func finishReconnect() {
-        guard waitingToReconnect else {
+        guard let pendingReconnect else {
             return
         }
-        waitingToReconnect = false
+        self.pendingReconnect = nil
         connectTimer.stop()
-        if isMoblink() {
+        if pendingReconnect.restartTunnel {
             delegate?.remoteConnectionOnMoblinkReconnect(connection: self)
         } else {
             startInternal()
@@ -513,12 +538,15 @@ class RemoteConnection: @unchecked Sendable {
         delegate?.remoteConnectionOnRegistered()
         connectTimer.stop()
         keepaliveTimer.startPeriodic(interval: 1) {
-            let now = ContinuousClock.now
-            self.sendSrtlaKeepalive()
-            if self.latestReceivedTime < now - .seconds(5) {
-                let delay = self.recovery.retryDelay()
-                self.reconnect(reason: "No packet received in 5 seconds", delay: delay)
-            }
+            self.handleKeepalive(now: .now)
+        }
+    }
+
+    func handleKeepalive(now: ContinuousClock.Instant) {
+        sendSrtlaKeepalive()
+        if latestReceivedTime < now - .seconds(5) {
+            let delay = recovery.retryDelay()
+            reconnect(reason: "No packet received in 5 seconds", delay: delay, now: now)
         }
     }
 
