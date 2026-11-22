@@ -8,10 +8,9 @@ struct AudioMixerEffectSuite {
         let limiter = try #require(makeAudioMixerLimiter())
         var output: [Float] = []
         for block in 0 ..< 4 {
-            var left = createBlock(block) { $0 == 1000 ? 0.25 : 0 }
-            var right = left
-            limiter.process(&left, &right)
-            output += left
+            var samples = createBlock(block) { $0 == 1000 ? 0.25 : 0 }
+            limiter.process(&samples)
+            output += samples
         }
         #expect(output.indices.filter { output[$0] != 0 } == [1000 + Int(limiter.latency)])
     }
@@ -21,11 +20,10 @@ struct AudioMixerEffectSuite {
         let limiter = try #require(makeAudioMixerLimiter())
         var peak: Float = 0
         for block in 0 ..< 100 {
-            var left = createBlock(block) { 4 * createSine(0, $0) }
-            var right = left
-            limiter.process(&left, &right)
+            var samples = createBlock(block) { 4 * createSine(0, $0) }
+            limiter.process(&samples)
             if block >= 25 {
-                peak = max(peak, left.map { abs($0) }.max() ?? 0)
+                peak = max(peak, samples.map { abs($0) }.max() ?? 0)
             }
         }
         #expect(peak > 0.5)
@@ -35,21 +33,18 @@ struct AudioMixerEffectSuite {
     @Test
     func failedRenderIsSilence() throws {
         let limiter = try #require(makeAudioMixerLimiter())
-        var left = createBlock(0) { _ in 0.5 }
-        var right = left
-        limiter.process(&left, &right)
+        var samples = createBlock(0) { _ in 0.5 }
+        limiter.process(&samples)
         AudioUnitUninitialize(limiter.audioUnit)
-        left = createBlock(1) { _ in 0.5 }
-        right = left
-        limiter.process(&left, &right)
-        let failed = left + right
+        samples = createBlock(1) { _ in 0.5 }
+        limiter.process(&samples)
+        let failed = samples
         AudioUnitInitialize(limiter.audioUnit)
-        left = createBlock(2) { _ in 0 }
-        right = left
-        limiter.process(&left, &right)
-        let silence = [Float](repeating: 0, count: 2 * audioMixerFramesPerBlock)
+        samples = createBlock(2) { _ in 0 }
+        limiter.process(&samples)
+        let silence = [Float](repeating: 0, count: audioMixerFramesPerBlock)
         #expect(failed == silence)
-        #expect(left + right == silence)
+        #expect(samples == silence)
     }
 }
 

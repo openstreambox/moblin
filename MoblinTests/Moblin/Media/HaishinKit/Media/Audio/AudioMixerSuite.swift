@@ -50,8 +50,7 @@ struct AudioMixerSuite {
     struct ChannelCase: CustomTestStringConvertible {
         let testDescription: String
         let channelsMap: [Int: Int]
-        let left: Int
-        let right: Int
+        let channel: Int
     }
 
     @Test(arguments: [
@@ -77,9 +76,8 @@ struct AudioMixerSuite {
         let frames = 256 ..< output.end
         #expect(output.isContinuous)
         #expect(output.presentationTimeStamps.first == startIndex - 2400 - limiterLatency)
-        #expect(output.samples(0, -2400 ..< 0) == [Float](repeating: 0, count: 2400))
-        #expect(output.samples(0, frames) == createNoise(0, frames))
-        #expect(output.samples(1, frames) == createNoise(testCase.numberOfChannels - 1, frames))
+        #expect(output.samples(-2400 ..< 0) == [Float](repeating: 0, count: 2400))
+        #expect(output.samples(frames) == createNoise(0, frames))
     }
 
     @Test
@@ -103,11 +101,9 @@ struct AudioMixerSuite {
             }
         }
         let frames = 256 ..< output.end
-        let left = zip(createNoise(0, frames), createNoise(2, frames)).map { $0 + 0.25 * $1 }
-        let right = zip(createNoise(1, frames), createNoise(3, frames)).map { $0 + 0.25 * $1 }
+        let expected = zip(createNoise(0, frames), createNoise(2, frames)).map { $0 + 0.25 * $1 }
         #expect(output.isContinuous)
-        #expect(output.samples(0, frames) == left)
-        #expect(output.samples(1, frames) == right)
+        #expect(output.samples(frames) == expected)
     }
 
     @Test(arguments: [
@@ -132,7 +128,7 @@ struct AudioMixerSuite {
             }
         }
         let gain = testCase.masterMuted ? 0 : 0.5 * testCase.sourceGain * testCase.masterGain
-        let samples = output.samples(1, 4096 ..< output.end)
+        let samples = output.samples(4096 ..< output.end)
         #expect(output.isContinuous)
         #expect(output.presentationTimeStamps.count == 40)
         #expect(samples.first == 0.5)
@@ -163,8 +159,7 @@ struct AudioMixerSuite {
         #expect(output.isContinuous)
         #expect(output.presentationTimeStamps.first == startIndex - testCase.latency - limiterLatency)
         #expect(output.frames { $0 != 0 } == [testCase.frame])
-        #expect(output.samples(0, testCase.frame ..< testCase.frame + 1) == [0.5])
-        #expect(output.samples(1, testCase.frame ..< testCase.frame + 1) == [0.5])
+        #expect(output.samples(testCase.frame ..< testCase.frame + 1) == [0.5])
     }
 
     @Test
@@ -195,8 +190,8 @@ struct AudioMixerSuite {
         #expect(output.isContinuous)
         #expect(output.presentationTimeStamps.count == 60)
         #expect(blocksPerTick[20 ..< 30].allSatisfy { $0 == 0 })
-        #expect(output.samples(0, early) == earlyContent)
-        #expect(output.samples(1, late) == createNoise(1, late))
+        #expect(output.samples(early) == earlyContent)
+        #expect(output.samples(late) == createNoise(0, late))
     }
 
     @Test(arguments: [
@@ -220,7 +215,7 @@ struct AudioMixerSuite {
                 output.append(block)
             }
         }
-        let samples = output.samples(0, 2048 ..< output.end)
+        let samples = output.samples(2048 ..< output.end)
         #expect(output.isContinuous)
         #expect(samples.allSatisfy { abs($0) <= 0.5 })
         #expect(calcMaximumStep(samples) < maximumSineStep + Float.pi / 512)
@@ -245,11 +240,11 @@ struct AudioMixerSuite {
         }
         let seek = 20 * 1024 - 2400
         let frames = seek + 256 ..< output.end
-        let crossfade = output.samples(0, seek - 1 ..< seek + 257)
+        let crossfade = output.samples(seek - 1 ..< seek + 257)
         let delayed = createSine(frames.lowerBound - 1771 ..< frames.upperBound - 1771)
         #expect(output.isContinuous)
-        #expect(output.samples(0, 256 ..< seek) == createSine(256 ..< seek))
-        #expect(output.samples(0, frames) == delayed)
+        #expect(output.samples(256 ..< seek) == createSine(256 ..< seek))
+        #expect(output.samples(frames) == delayed)
         #expect(calcMaximumStep(crossfade) < maximumSineStep + Float.pi / 512)
     }
 
@@ -272,9 +267,9 @@ struct AudioMixerSuite {
         }
         let end = 20 * 1024
         #expect(output.isContinuous)
-        #expect(output.samples(0, 4096 ..< end - 256).allSatisfy { $0 == 0.5 })
-        #expect(output.samples(0, end - 256 ..< end) == createFallingFade().map { 0.5 * $0 })
-        #expect(output.samples(0, end ..< output.end).allSatisfy { $0 == 0 })
+        #expect(output.samples(4096 ..< end - 256).allSatisfy { $0 == 0.5 })
+        #expect(output.samples(end - 256 ..< end) == createFallingFade().map { 0.5 * $0 })
+        #expect(output.samples(end ..< output.end).allSatisfy { $0 == 0 })
     }
 
     @Test
@@ -293,7 +288,7 @@ struct AudioMixerSuite {
                 output.append(block)
             }
         }
-        let samples = output.samples(1, 4096 ..< output.end)
+        let samples = output.samples(4096 ..< output.end)
         #expect(output.isContinuous)
         #expect(samples.first == 0.5)
         #expect(samples.last == 0.25)
@@ -322,11 +317,11 @@ struct AudioMixerSuite {
                 output.append(block)
             }
         }
-        let samples = output.samples(0, 4096 ..< output.end)
+        let samples = output.samples(4096 ..< output.end)
         #expect(output.isContinuous)
         #expect(output.presentationTimeStamps.count == 50)
         #expect(samples.first == 0.75)
-        #expect(output.samples(0, 20 * 1024 ..< 27 * 1024).allSatisfy { $0 == 0.25 })
+        #expect(output.samples(20 * 1024 ..< 27 * 1024).allSatisfy { $0 == 0.25 })
         #expect(samples.suffix(15 * 1024).allSatisfy { $0 == 0 })
         #expect(calcMaximumStep(samples) < 0.5 / 1024 + 1e-6)
         #expect(mixer.sources.isEmpty)
@@ -353,7 +348,7 @@ struct AudioMixerSuite {
         }
         #expect(output.isContinuous)
         #expect(output.frames { $0 != 0 } == [30000, 142_000])
-        #expect(output.samples(0, 142_000 ..< 142_001) == [0.5])
+        #expect(output.samples(142_000 ..< 142_001) == [0.5])
     }
 
     @Test(arguments: [600, 672, 928])
@@ -375,9 +370,9 @@ struct AudioMixerSuite {
         let end = 19 * 1024 + lastFrameLength
         #expect(output.isContinuous)
         #expect(output.presentationTimeStamps.count == 40)
-        #expect(output.samples(0, 4096 ..< end - 256).allSatisfy { $0 == 0.5 })
-        #expect(output.samples(0, end - 256 ..< end) == createFallingFade().map { 0.5 * $0 })
-        #expect(output.samples(1, end ..< output.end).allSatisfy { $0 == 0 })
+        #expect(output.samples(4096 ..< end - 256).allSatisfy { $0 == 0.5 })
+        #expect(output.samples(end - 256 ..< end) == createFallingFade().map { 0.5 * $0 })
+        #expect(output.samples(end ..< output.end).allSatisfy { $0 == 0 })
     }
 
     @Test
@@ -396,10 +391,10 @@ struct AudioMixerSuite {
         let cut = 20 * 1024 - 2400
         let resync = 21 * 1024
         #expect(output.isContinuous)
-        #expect(output.samples(0, 4096 ..< cut).allSatisfy { $0 == 0.5 })
-        #expect(output.samples(0, cut ..< resync).allSatisfy { $0 == 0 })
-        #expect(output.samples(0, resync ..< resync + 256) == createRisingFade().map { 0.5 * $0 })
-        #expect(output.samples(0, resync + 256 ..< output.end).allSatisfy { $0 == 0.5 })
+        #expect(output.samples(4096 ..< cut).allSatisfy { $0 == 0.5 })
+        #expect(output.samples(cut ..< resync).allSatisfy { $0 == 0 })
+        #expect(output.samples(resync ..< resync + 256) == createRisingFade().map { 0.5 * $0 })
+        #expect(output.samples(resync + 256 ..< output.end).allSatisfy { $0 == 0.5 })
     }
 
     @Test(arguments: [false, true])
@@ -421,7 +416,7 @@ struct AudioMixerSuite {
                 output.append(block)
             }
         }
-        let samples = output.samples(0, 4096 ..< output.end)
+        let samples = output.samples(4096 ..< output.end)
         #expect(output.isContinuous)
         #expect(samples.contains(0))
         #expect(samples.suffix(5 * 1024).allSatisfy { $0 == 0.5 })
@@ -451,7 +446,7 @@ struct AudioMixerSuite {
             .map { $1 - $0 }
         let skipped = 91 * 1024 - 3424
         let latency = Int(limiterLatency)
-        let samples = Array(output.left.suffix(10 * 1024))
+        let samples = Array(output.values.suffix(10 * 1024))
         let fade = skipped ..< skipped + 256
         let frames = skipped + 256 ..< skipped + 10 * 1024 - latency
         #expect(blocksPerTick.allSatisfy { $0 == 1 })
@@ -490,8 +485,8 @@ struct AudioMixerSuite {
         let start = 96000 + Int(testCase.ahead)
         #expect(mixer.latency == 26400)
         #expect(output.isContinuous)
-        #expect(output.samples(0, -26400 ..< start).allSatisfy { $0 == 0 })
-        #expect(output.samples(0, start + 256 ..< output.end).allSatisfy { $0 == 0.5 })
+        #expect(output.samples(-26400 ..< start).allSatisfy { $0 == 0 })
+        #expect(output.samples(start + 256 ..< output.end).allSatisfy { $0 == 0.5 })
         #expect(mixer.numberOfSkips == 0)
     }
 
@@ -510,15 +505,15 @@ struct AudioMixerSuite {
         }
         let overwritten = 150 * 1024 - 2400
         #expect(output.isContinuous)
-        #expect(output.samples(0, 96256 ..< overwritten).allSatisfy { $0 == 0.5 })
-        #expect(output.samples(0, overwritten ..< output.end).allSatisfy { $0 == 0 })
+        #expect(output.samples(96256 ..< overwritten).allSatisfy { $0 == 0.5 })
+        #expect(output.samples(overwritten ..< output.end).allSatisfy { $0 == 0 })
     }
 
     @Test(arguments: [
-        ChannelCase(testDescription: "channels 3 and 4", channelsMap: [0: 2, 1: 3], left: 2, right: 3),
-        ChannelCase(testDescription: "channel 2 on both sides", channelsMap: [0: 1, 1: 1], left: 1, right: 1),
-        ChannelCase(testDescription: "silent left", channelsMap: [0: -1, 1: 2], left: -1, right: 2),
-        ChannelCase(testDescription: "missing channels", channelsMap: [0: 4, 1: 7], left: 0, right: 1),
+        ChannelCase(testDescription: "channel 3", channelsMap: [0: 2, 1: 3], channel: 2),
+        ChannelCase(testDescription: "channel 2", channelsMap: [0: 1, 1: 1], channel: 1),
+        ChannelCase(testDescription: "silent", channelsMap: [0: -1, 1: 2], channel: -1),
+        ChannelCase(testDescription: "missing channel", channelsMap: [0: 4, 1: 7], channel: 0),
     ])
     func picksChannels(_ testCase: ChannelCase) {
         let mixer = AudioMixer()
@@ -532,8 +527,7 @@ struct AudioMixerSuite {
             }
         }
         let frames = 256 ..< output.end
-        #expect(output.samples(0, frames) == createNoise(testCase.left, frames))
-        #expect(output.samples(1, frames) == createNoise(testCase.right, frames))
+        #expect(output.samples(frames) == createNoise(testCase.channel, frames))
     }
 
     @Test
@@ -553,8 +547,7 @@ struct AudioMixerSuite {
 
 private final class Output {
     private(set) var presentationTimeStamps: [Int64] = []
-    private(set) var left: [Float] = []
-    private(set) var right: [Float] = []
+    private(set) var values: [Float] = []
     private var timescales: Set<CMTimeScale> = []
 
     var isContinuous: Bool {
@@ -563,7 +556,7 @@ private final class Output {
     }
 
     var end: Int {
-        left.count - offset
+        values.count - offset
     }
 
     private var offset: Int {
@@ -574,16 +567,15 @@ private final class Output {
         presentationTimeStamps.append(block.presentationTimeStamp.value)
         timescales.insert(block.presentationTimeStamp.timescale)
         let count = Int(block.buffer.frameLength)
-        left += UnsafeBufferPointer(start: block.buffer.floatChannelData![0], count: count)
-        right += UnsafeBufferPointer(start: block.buffer.floatChannelData![1], count: count)
+        values += UnsafeBufferPointer(start: block.buffer.floatChannelData![0], count: count)
     }
 
-    func samples(_ channel: Int, _ frames: Range<Int>) -> [Float] {
-        Array((channel == 0 ? left : right)[frames.lowerBound + offset ..< frames.upperBound + offset])
+    func samples(_ frames: Range<Int>) -> [Float] {
+        Array(values[frames.lowerBound + offset ..< frames.upperBound + offset])
     }
 
     func frames(where predicate: (Float) -> Bool) -> [Int] {
-        left.indices.filter { predicate(left[$0]) }.map { $0 - offset }
+        values.indices.filter { predicate(values[$0]) }.map { $0 - offset }
     }
 }
 
