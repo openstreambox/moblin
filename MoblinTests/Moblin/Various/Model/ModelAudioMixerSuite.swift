@@ -195,12 +195,26 @@ struct ModelAudioMixerSuite {
 
     @Test
     func settingsPageFollowsTheCurrentMix() {
-        let mic = SettingsMicsMic(name: "Guest", inputUid: "guest", connected: true)
-        #expect(findMixerSource(id: mic.id, sources: [usbMic1, mic]) === mic)
-        #expect(findMixerSource(id: mic.id, sources: [usbMic1]) == nil)
-        let recreated = SettingsMicsMic(name: "Guest", inputUid: "guest", connected: true)
-        #expect(findMixerSource(id: mic.id, sources: [usbMic1, recreated]) === recreated)
-        #expect(findMixerSource(id: nil, sources: [usbMic1]) == nil)
+        let main = SettingsMicsMic(name: "Camera", inputUid: "camera", connected: true)
+        let guest = SettingsMicsMic(name: "Guest", inputUid: "guest", connected: true)
+        let sources = makeMixerSources(currentId: main.id, mics: [usbMic, main], mixed: [guest])
+        #expect(findMixerSource(id: guest.id, sources: sources) === guest)
+        #expect(findMixerSource(id: main.id, sources: sources) === main)
+        #expect(findMixerSource(id: nil, sources: sources) == nil)
+        let afterDelete = makeMixerSources(currentId: main.id, mics: [usbMic], mixed: [guest])
+        #expect(findMixerSource(id: main.id, sources: afterDelete) == nil)
+        #expect(findMixerSource(id: guest.id, sources: afterDelete) === guest)
+    }
+
+    @Test
+    func deletedMainMicKeepsOtherSourcesAddable() {
+        let deleted = SettingsMicsMic(name: rtmpCamera(name: "Old"), inputUid: "old", connected: true)
+        let guest = SettingsMicsMic(name: rtmpCamera(name: "Guest"), inputUid: "guest", connected: true)
+        #expect(isAudioMicAddable(mic: guest, current: deleted))
+        #expect(!isAudioMicAddable(mic: frontMic, current: deleted))
+        guest.mixed = true
+        #expect(!isAudioMicAddable(mic: guest, current: deleted))
+        #expect(makeAudioMixerMixedMics(mics: [frontMic, guest], current: deleted) == [guest])
     }
 
     @Test

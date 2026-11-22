@@ -323,15 +323,10 @@ private struct MixerAddSourceView: View {
     let model: Model
     @ObservedObject var mics: SettingsMics
     @ObservedObject var modelMic: Mic
-    let current: SettingsMicsMic?
+    let current: SettingsMicsMic
 
     var body: some View {
-        let addable = mics.mics.filter {
-            guard let current else {
-                return false
-            }
-            return $0.connected && !$0.mixed && isAudioMicMixable(mic: $0, current: current)
-        }
+        let addable = mics.mics.filter { isAudioMicAddable(mic: $0, current: current) }
         Menu {
             if addable.isEmpty {
                 Text("No other sources to add")
@@ -473,7 +468,10 @@ struct QuickButtonMixerView: View {
                             .id("\(mic.id) gain")
                         }
                     }
-                    MixerAddSourceView(model: model, mics: mics, modelMic: modelMic, current: current)
+                    MixerAddSourceView(model: model,
+                                       mics: mics,
+                                       modelMic: modelMic,
+                                       current: current ?? modelMic.current)
                     MixerSyncLinkView(model: model)
                 } footer: {
                     Text("Tap for gain. Swipe for mute or settings.")

@@ -27,6 +27,10 @@ func makeAudioChannelMicNames(portName: String, channelNames: [String?]) -> [Str
     return names
 }
 
+func isAudioMicAddable(mic: SettingsMicsMic, current: SettingsMicsMic) -> Bool {
+    mic.connected && !mic.mixed && isAudioMicMixable(mic: mic, current: current)
+}
+
 func makeAudioMixerMixedMics(mics: [SettingsMicsMic], current: SettingsMicsMic) -> [SettingsMicsMic] {
     mics.filter { $0.mixed && $0.connected && isAudioMicMixable(mic: $0, current: current) }
 }
