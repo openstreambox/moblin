@@ -188,6 +188,32 @@ private struct MixerEqualizerCurveView: View {
     }
 }
 
+struct MixerEffectDraft {
+    private(set) var value: Float?
+    private(set) var isEditing = false
+
+    mutating func beginEditing() {
+        isEditing = true
+    }
+
+    mutating func set(_ newValue: Float) -> Bool {
+        value = newValue
+        return !isEditing
+    }
+
+    mutating func endEditing() -> Float? {
+        isEditing = false
+        return take()
+    }
+
+    mutating func take() -> Float? {
+        defer {
+            value = nil
+        }
+        return value
+    }
+}
+
 private struct MixerEffectSliderView: View {
     let label: LocalizedStringKey
     @Binding var value: Float
@@ -196,10 +222,11 @@ private struct MixerEffectSliderView: View {
     var logarithmic = false
     let format: (Float) -> String
     let onEditingEnded: () -> Void
-    @State private var draft: Float?
+    @State private var draft = MixerEffectDraft()
+    @State private var pendingCommit: Task<Void, Never>?
 
     private var current: Float {
-        (draft ?? value).clamped(to: range)
+        (draft.value ?? value).clamped(to: range)
     }
 
     private var position: Binding<Float> {
@@ -207,7 +234,9 @@ private struct MixerEffectSliderView: View {
             logarithmic ? log10(current) : current
         }, set: {
             let newValue = logarithmic ? pow(10, $0) : $0
-            draft = ((newValue / step).rounded() * step).clamped(to: range)
+            if draft.set(((newValue / step).rounded() * step).clamped(to: range)) {
+                commitAfterPause()
+            }
         })
     }
 
@@ -216,14 +245,38 @@ private struct MixerEffectSliderView: View {
     }
 
     private func editingChanged(_ editing: Bool) {
-        guard !editing else {
+        pendingCommit?.cancel()
+        if editing {
+            draft.beginEditing()
+        } else {
+            save(draft.endEditing())
+            onEditingEnded()
+        }
+    }
+
+    private func commitAfterPause() {
+        pendingCommit?.cancel()
+        pendingCommit = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else {
+                return
+            }
+            commitPending()
+        }
+    }
+
+    private func commitPending() {
+        guard let pending = draft.take() else {
             return
         }
-        if let draft {
-            value = draft
-        }
-        draft = nil
+        save(pending)
         onEditingEnded()
+    }
+
+    private func save(_ newValue: Float?) {
+        if let newValue {
+            value = newValue
+        }
     }
 
     var body: some View {
@@ -241,6 +294,12 @@ private struct MixerEffectSliderView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(width: 75, alignment: .trailing)
+        }
+        .onDisappear {
+            pendingCommit?.cancel()
+            if !draft.isEditing {
+                commitPending()
+            }
         }
     }
 }

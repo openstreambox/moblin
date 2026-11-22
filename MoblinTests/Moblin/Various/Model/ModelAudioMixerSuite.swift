@@ -322,4 +322,31 @@ struct ModelAudioMixerSuite {
         let onMaster = result.allSatisfy(\.canUseOnMaster)
         #expect(onMaster)
     }
+
+    @Test
+    func effectDraftSavesOnReleaseWhileDragging() {
+        var draft = MixerEffectDraft()
+        draft.beginEditing()
+        let first = draft.set(3)
+        let second = draft.set(4)
+        #expect(!first && !second)
+        #expect(draft.value == 4)
+        let released = draft.endEditing()
+        #expect(released == 4)
+        #expect(draft.value == nil)
+        #expect(!draft.isEditing)
+    }
+
+    @Test
+    func effectDraftSavesAdjustmentsWithoutDrag() {
+        var draft = MixerEffectDraft()
+        let needsPause = draft.set(-6)
+        #expect(needsPause)
+        let pending = draft.take()
+        #expect(pending == -6)
+        let again = draft.take()
+        #expect(again == nil)
+        let released = draft.endEditing()
+        #expect(released == nil)
+    }
 }
