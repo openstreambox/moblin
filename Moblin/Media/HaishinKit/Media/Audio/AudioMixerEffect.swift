@@ -52,6 +52,52 @@ final class AudioMixerEffectChain {
     }
 }
 
+struct AudioMixerEqualizer: Equatable {
+    var frequency: Float = 1000
+    var gain: Float = 0
+    var bandwidth: Float = 1
+}
+
+enum AudioMixerEffectSettings: Equatable {
+    case equalizer(AudioMixerEqualizer)
+
+    func makeStage() -> (any AudioMixerEffectStage)? {
+        switch self {
+        case let .equalizer(settings):
+            AudioMixerEffect(subType: kAudioUnitSubType_NBandEQ, parameters: [
+                kAUNBandEQParam_FilterType: Float(kAUNBandEQFilterType_Parametric),
+                kAUNBandEQParam_Frequency: settings.frequency.clamped(to: 20 ... 20000),
+                kAUNBandEQParam_Gain: settings.gain.clamped(to: -24 ... 24),
+                kAUNBandEQParam_Bandwidth: settings.bandwidth.clamped(to: 0.05 ... 5),
+                kAUNBandEQParam_BypassBand: 0,
+            ], numberOfBands: 1, bypassOnFailure: true)
+        }
+    }
+}
+
+final class AudioMixerEffectBuffer {
+    let left = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
+    let right = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
+
+    deinit {
+        left.deallocate()
+        right.deallocate()
+    }
+
+    func crossfade(into left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>?) {
+        crossfade(self.left, into: left)
+        if let right {
+            crossfade(self.right, into: right)
+        }
+    }
+
+    private func crossfade(_ next: UnsafePointer<Float>, into current: UnsafeMutablePointer<Float>) {
+        crossfadeAudioMixerSamples(from: current, to: next, output: current)
+        let fade = audioMixerFadeFrames
+        (current + fade).update(from: next + fade, count: audioMixerFramesPerBlock - fade)
+    }
+}
+
 final class AudioMixerEffect: AudioMixerEffectStage {
     private(set) var latency: Int64 = 0
     let audioUnit: AudioComponentInstance
@@ -60,10 +106,16 @@ final class AudioMixerEffect: AudioMixerEffectStage {
     private let outputRight: UnsafeMutablePointer<Float>
     private var timeStamp = AudioTimeStamp()
     private var renderStatus = noErr
+    private let bypassOnFailure: Bool
+    private var bypassed = false
     private var left: UnsafeMutablePointer<Float>?
     private var right: UnsafeMutablePointer<Float>?
 
-    init?(subType: OSType, parameters: [AudioUnitParameterID: AudioUnitParameterValue] = [:]) {
+    init?(subType: OSType,
+          parameters: [AudioUnitParameterID: AudioUnitParameterValue] = [:],
+          numberOfBands: UInt32? = nil,
+          bypassOnFailure: Bool = false)
+    {
         var description = AudioComponentDescription(
             componentType: kAudioUnitType_Effect,
             componentSubType: subType,
@@ -80,11 +132,12 @@ final class AudioMixerEffect: AudioMixerEffectStage {
             return nil
         }
         self.audioUnit = audioUnit
+        self.bypassOnFailure = bypassOnFailure
         output = AudioBufferList.allocate(maximumBuffers: 2)
         outputLeft = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
         outputRight = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
         timeStamp.mFlags = .sampleTimeValid
-        guard initialize(parameters) else {
+        guard initialize(parameters, numberOfBands: numberOfBands) else {
             logger.info("audio-mixer: Failed to initialize effect \(subType)")
             return nil
         }
@@ -99,11 +152,19 @@ final class AudioMixerEffect: AudioMixerEffectStage {
     }
 
     func reset() {
+        bypassed = false
+        resetUnit()
+    }
+
+    private func resetUnit() {
         AudioUnitReset(audioUnit, kAudioUnitScope_Global, 0)
     }
 
     @discardableResult
     func process(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>) -> Bool {
+        guard !bypassed else {
+            return true
+        }
         self.left = left
         self.right = right
         let byteSize = UInt32(audioMixerFramesPerBlock * MemoryLayout<Float>.size)
@@ -124,9 +185,13 @@ final class AudioMixerEffect: AudioMixerEffectStage {
             renderStatus = status
         }
         guard status == noErr else {
+            if bypassOnFailure, latency == 0 {
+                bypassed = true
+                return true
+            }
             left.update(repeating: 0, count: audioMixerFramesPerBlock)
             right.update(repeating: 0, count: audioMixerFramesPerBlock)
-            reset()
+            resetUnit()
             return false
         }
         copyOutput(0, left)
@@ -148,7 +213,9 @@ final class AudioMixerEffect: AudioMixerEffectStage {
         }
     }
 
-    private func initialize(_ parameters: [AudioUnitParameterID: AudioUnitParameterValue]) -> Bool {
+    private func initialize(_ parameters: [AudioUnitParameterID: AudioUnitParameterValue],
+                            numberOfBands: UInt32?) -> Bool
+    {
         var format = AudioStreamBasicDescription(
             mSampleRate: audioMixerSampleRate,
             mFormatID: kAudioFormatLinearPCM,
@@ -177,9 +244,19 @@ final class AudioMixerEffect: AudioMixerEffectStage {
               setProperty(kAudioUnitProperty_SetRenderCallback,
                           kAudioUnitScope_Input,
                           &callback,
-                          MemoryLayout<AURenderCallbackStruct>.size),
-              AudioUnitInitialize(audioUnit) == noErr
+                          MemoryLayout<AURenderCallbackStruct>.size)
         else {
+            return false
+        }
+        if var numberOfBands,
+           !setProperty(kAUNBandEQProperty_NumberOfBands,
+                        kAudioUnitScope_Global,
+                        &numberOfBands,
+                        MemoryLayout<UInt32>.size)
+        {
+            return false
+        }
+        guard AudioUnitInitialize(audioUnit) == noErr else {
             return false
         }
         for (id, value) in parameters {

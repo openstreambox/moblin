@@ -122,6 +122,35 @@ struct AudioMixerSuite {
     }
 
     @Test
+    func sourceEqualizerCanBeReplacedAndBypassedWithoutADrop() throws {
+        let mixer = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        let dry = createSettings()
+        var wet = dry
+        wet.effects = [.equalizer(.init(gain: -12))]
+        mixer.setSources([dry])
+        let source = try #require(mixer.sources.first)
+        let output = Output()
+        for tick in 0 ..< 24 {
+            if tick == 8 {
+                mixer.setSources([wet])
+            } else if tick == 16 {
+                mixer.setSources([dry])
+            }
+            mixer.appendBuiltin(createSampleBuffer(format, tick) { createSine($0, $1) }, createTime(tick))
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                output.append(block)
+            }
+        }
+        #expect(mixer.sources.first === source)
+        #expect(mixer.numberOfSkips == 0)
+        #expect(output.isContinuous)
+        #expect(calcMaximumStep(output.samples(0, 1024 ..< 20 * 1024)) < 0.067)
+        #expect(output.samples(0, 12 * 1024 ..< 13 * 1024).map { abs($0) }.max() ?? 1 < 0.15)
+        #expect(output.samples(0, 18 * 1024 ..< 19 * 1024) == createSine(18 * 1024 ..< 19 * 1024))
+    }
+
+    @Test
     func sumsSources() {
         let mixer = AudioMixer()
         let builtinFormat = createFormat(.pcmFormatFloat32, 2, false)
