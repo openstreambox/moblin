@@ -375,19 +375,40 @@ private struct MixerAddSourceRowView: View {
     }
 }
 
+private func isMixerSourceAddable(_ mic: SettingsMicsMic, current: SettingsMicsMic?) -> Bool {
+    guard let current else {
+        return false
+    }
+    return mic.connected && !mic.mixed && isAudioMicMixable(mic: mic, current: current)
+}
+
+private struct MixerAddSourceItemView: View {
+    let model: Model
+    @ObservedObject var mic: SettingsMicsMic
+    let current: SettingsMicsMic?
+    let dismiss: () -> Void
+
+    var body: some View {
+        if isMixerSourceAddable(mic, current: current) {
+            MixerAddSourceRowView(image: mixerSourceImage(mic: mic),
+                                  text: mic.name,
+                                  effects: mic.effects)
+            {
+                if isMixerSourceAddable(mic, current: current) {
+                    model.setMicMixed(mic: mic, mixed: true)
+                }
+                dismiss()
+            }
+        }
+    }
+}
+
 private struct MixerAddSourceListView: View {
     let model: Model
     @ObservedObject var mics: SettingsMics
     let current: SettingsMicsMic?
     let createSource: () -> Void
     let dismiss: () -> Void
-
-    private func isAddable(_ mic: SettingsMicsMic) -> Bool {
-        guard let current else {
-            return false
-        }
-        return mic.connected && !mic.mixed && isAudioMicMixable(mic: mic, current: current)
-    }
 
     var body: some View {
         ScrollView {
@@ -398,15 +419,11 @@ private struct MixerAddSourceListView: View {
                     dismiss()
                     createSource()
                 }
-                Divider()
-                ForEach(mics.mics.filter(isAddable)) { mic in
-                    MixerAddSourceRowView(image: mixerSourceImage(mic: mic),
-                                          text: mic.name,
-                                          effects: mic.effects)
-                    {
-                        model.setMicMixed(mic: mic, mixed: true)
-                        dismiss()
-                    }
+                if mics.mics.contains(where: { isMixerSourceAddable($0, current: current) }) {
+                    Divider()
+                }
+                ForEach(mics.mics) { mic in
+                    MixerAddSourceItemView(model: model, mic: mic, current: current, dismiss: dismiss)
                 }
             }
         }
