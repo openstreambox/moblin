@@ -248,6 +248,7 @@ private struct MixerSourceDelayView: View {
         let range = makeMicDelayRange(audioMixer: true)
         HStack {
             Text("Delay")
+                .fixedSize()
             Slider(
                 value: Binding(get: { mic.delay.clamped(to: range) }, set: { mic.delay = $0 }),
                 in: range,
@@ -474,27 +475,49 @@ private struct MixerOutputView: View {
     let expanded: Bool
     let toggleExpanded: () -> Void
 
+    @ViewBuilder
+    private var status: some View {
+        if provider.muted {
+            Text("Muted")
+                .font(.caption)
+                .bold()
+                .foregroundStyle(.red)
+                .fixedSize()
+        }
+    }
+
+    private var gain: some View {
+        HStack {
+            MixerOutputEffectsMarkView(effects: audio.outputEffects)
+            Spacer(minLength: 4)
+            Text("\(formatOneDecimal(audio.gainDb)) dB")
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .fixedSize()
+            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("Output gain")
-                    .lineLimit(1)
-                if provider.muted {
-                    Text("Muted")
-                        .font(.caption)
-                        .bold()
-                        .foregroundStyle(.red)
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    Text("Output gain")
+                        .lineLimit(1)
                         .fixedSize()
+                    status
+                    gain
                 }
-                MixerOutputEffectsMarkView(effects: audio.outputEffects)
-                Spacer(minLength: 0)
-                Text("\(formatOneDecimal(audio.gainDb)) dB")
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .fixedSize()
-                Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Output gain")
+                            .lineLimit(2)
+                        status
+                    }
+                    gain
+                }
             }
             let outputs = meters.outputs(stereo: audio.stereoMix)
             ForEach(outputs.indices, id: \.self) {

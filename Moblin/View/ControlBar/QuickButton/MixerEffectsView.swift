@@ -206,7 +206,7 @@ private struct MixerEffectSliderView: View {
     var body: some View {
         HStack {
             Text(label)
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.8)
                 .frame(width: 105, alignment: .leading)
             if logarithmic {
@@ -245,7 +245,7 @@ private struct MixerEffectHeaderView: View {
                 Text(enabled ? summary : String(localized: "Off"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
             Spacer()
             Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -350,7 +350,8 @@ private struct MixerTimingView: View {
                 Text("Attack \(formatMilliseconds(attack)), release \(formatMilliseconds(release))")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
             }
         }
     }
@@ -481,7 +482,8 @@ struct MixerSourceEffectsLinkView: View {
                 Spacer()
                 Text(makeMixerSourceEffectsSummary(effects))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
             }
         }
     }
@@ -575,7 +577,8 @@ struct MixerOutputEffectsLinkView: View {
                 Spacer()
                 Text(makeMixerOutputEffectsSummary(effects))
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.trailing)
             }
         }
     }
