@@ -319,38 +319,31 @@ private struct MixerSourceSettingsView: View {
     }
 }
 
-private struct MixerAddSourceButtonView: View {
-    let model: Model
-    @ObservedObject var mic: SettingsMicsMic
-    let current: SettingsMicsMic
-
-    var body: some View {
-        if mic.connected, !mic.mixed, isAudioMicMixable(mic: mic, current: current) {
-            Button(mic.name) {
-                model.setMicMixed(mic: mic, mixed: true)
-            }
-        }
-    }
-}
-
 private struct MixerAddSourceView: View {
     let model: Model
     @ObservedObject var mics: SettingsMics
-    let current: SettingsMicsMic
-
-    private func isAddable(_ mic: SettingsMicsMic) -> Bool {
-        mic.connected && !mic.mixed && isAudioMicMixable(mic: mic, current: current)
-    }
+    @ObservedObject var modelMic: Mic
+    let current: SettingsMicsMic?
 
     var body: some View {
-        if mics.mics.contains(where: isAddable) {
-            Menu {
-                ForEach(mics.mics) { mic in
-                    MixerAddSourceButtonView(model: model, mic: mic, current: current)
-                }
-            } label: {
-                Label("Add source", systemImage: "plus")
+        let addable = mics.mics.filter {
+            guard let current else {
+                return false
             }
+            return $0.connected && !$0.mixed && isAudioMicMixable(mic: $0, current: current)
+        }
+        Menu {
+            if addable.isEmpty {
+                Text("No other sources to add")
+            } else {
+                ForEach(addable) { mic in
+                    Button(mic.name) {
+                        model.setMicMixed(mic: mic, mixed: true)
+                    }
+                }
+            }
+        } label: {
+            Label("Add source", systemImage: "plus")
         }
     }
 }
@@ -376,7 +369,7 @@ private struct MixerOutputView: View {
                         .fixedSize()
                 } else {
                     HStack(spacing: 3) {
-                        Text("Limiter")
+                        Text("Stream limiter")
                         Text("\(formatOneDecimal(-limiter.reduction)) dB")
                     }
                     .font(.caption)
@@ -396,6 +389,9 @@ private struct MixerOutputView: View {
             }
             MixerMeterView(level: meters.left)
             MixerMeterView(level: meters.right)
+            Text("Stream")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -422,7 +418,7 @@ struct QuickButtonMixerView: View {
     @ObservedObject var modelMic: Mic
     @State private var expandedId: String?
     @State private var outputExpanded = false
-    @State private var settingsMic: SettingsMicsMic?
+    @State private var settingsMicId: String?
     @State private var presentingSettings = false
 
     private func toggleExpanded(id: String, proxy: ScrollViewProxy) {
@@ -449,13 +445,17 @@ struct QuickButtonMixerView: View {
     }
 
     private func showSettings(mic: SettingsMicsMic) {
-        settingsMic = mic
+        settingsMicId = mic.id
         presentingSettings = true
     }
 
+    private func mixerSources() -> [SettingsMicsMic] {
+        makeMixerSources(currentId: modelMic.current.id, mics: mics.mics, mixed: modelMic.mixed)
+    }
+
     var body: some View {
-        let current = model.getMicById(id: modelMic.current.id) ?? modelMic.current
-        let sources = [current] + modelMic.mixed
+        let sources = mixerSources()
+        let current = model.getMicById(id: modelMic.current.id)
         ScrollViewReader { proxy in
             Form {
                 Section {
@@ -473,7 +473,7 @@ struct QuickButtonMixerView: View {
                             .id("\(mic.id) gain")
                         }
                     }
-                    MixerAddSourceView(model: model, mics: mics, current: current)
+                    MixerAddSourceView(model: model, mics: mics, modelMic: modelMic, current: current)
                     MixerSyncLinkView(model: model)
                 } footer: {
                     Text("Tap for gain. Swipe for mute or settings.")
@@ -497,12 +497,15 @@ struct QuickButtonMixerView: View {
                 if let expandedId, !ids.contains(expandedId) {
                     self.expandedId = nil
                 }
+                if let settingsMicId, !ids.contains(settingsMicId) {
+                    presentingSettings = false
+                }
             }
         }
         .navigationTitle("Mixer")
         .navigationDestination(isPresented: $presentingSettings) {
-            if let settingsMic {
-                MixerSourceSettingsView(model: model, mic: settingsMic, modelMic: modelMic)
+            if let mic = findMixerSource(id: settingsMicId, sources: mixerSources()) {
+                MixerSourceSettingsView(model: model, mic: mic, modelMic: modelMic)
             }
         }
     }

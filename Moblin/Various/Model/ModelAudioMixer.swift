@@ -46,6 +46,17 @@ func isAudioMicSwitchNeeded(current: SettingsMicsMic?,
         && current.inputUid == highestPriority.inputUid)
 }
 
+func makeMixerSources(currentId: String,
+                      mics: [SettingsMicsMic],
+                      mixed: [SettingsMicsMic]) -> [SettingsMicsMic]
+{
+    (mics.first { $0.id == currentId }.map { [$0] } ?? []) + mixed
+}
+
+func findMixerSource(id: String?, sources: [SettingsMicsMic]) -> SettingsMicsMic? {
+    sources.first { $0.id == id }
+}
+
 func isAudioChannelMicConnected(mic: SettingsMicsMic,
                                 found: [SettingsMicsMic],
                                 inputUid: String?,
@@ -107,11 +118,12 @@ class AudioMixerMeters {
         return level
     }
 
-    func update(levels: AudioMixerLevels) {
+    func update(levels: AudioMixerLevels, activeIds: Set<String>) {
+        sources = sources.filter { activeIds.contains($0.key) }
         for (id, level) in sources {
             setLevel(level, peak: levels.sources[id] ?? 0)
         }
-        for (id, peak) in levels.sources where sources[id] == nil {
+        for (id, peak) in levels.sources where sources[id] == nil && activeIds.contains(id) {
             setLevel(source(id: id), peak: peak)
         }
         setLevel(left, peak: levels.left)

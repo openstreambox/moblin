@@ -1011,7 +1011,8 @@ extension Model: MediaDelegate {
 
     nonisolated func mediaOnAudioMixerLevels(levels: AudioMixerLevels) {
         DispatchQueue.main.async {
-            self.audioMixerMeters.update(levels: levels)
+            let activeIds = Set(([self.mic.current] + self.mic.mixed).map(\.id))
+            self.audioMixerMeters.update(levels: levels, activeIds: activeIds)
         }
     }
 

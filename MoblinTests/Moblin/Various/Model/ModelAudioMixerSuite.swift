@@ -194,6 +194,40 @@ struct ModelAudioMixerSuite {
     }
 
     @Test
+    func settingsPageFollowsTheCurrentMix() {
+        let mic = SettingsMicsMic(name: "Guest", inputUid: "guest", connected: true)
+        #expect(findMixerSource(id: mic.id, sources: [usbMic1, mic]) === mic)
+        #expect(findMixerSource(id: mic.id, sources: [usbMic1]) == nil)
+        let recreated = SettingsMicsMic(name: "Guest", inputUid: "guest", connected: true)
+        #expect(findMixerSource(id: mic.id, sources: [usbMic1, recreated]) === recreated)
+        #expect(findMixerSource(id: nil, sources: [usbMic1]) == nil)
+    }
+
+    @Test
+    func deletedMainMicIsNotAMixerSource() {
+        let main = SettingsMicsMic(name: "Camera", inputUid: "camera", connected: true)
+        let sources = makeMixerSources(currentId: main.id, mics: [usbMic, main], mixed: [srtlaMic])
+        #expect(sources == [main, srtlaMic])
+        #expect(sources[0] === main)
+        #expect(makeMixerSources(currentId: main.id, mics: [usbMic], mixed: [srtlaMic]) == [srtlaMic])
+        #expect(makeMixerSources(currentId: main.id, mics: [usbMic], mixed: []).isEmpty)
+    }
+
+    @Test @MainActor
+    func meterSurvivesAnOlderLevelsSnapshot() {
+        let meters = AudioMixerMeters()
+        let old = meters.source(id: "old")
+        let new = meters.source(id: "new")
+        let older = AudioMixerLevels(sources: ["old": 0.5], left: 0, right: 0)
+        meters.update(levels: older, activeIds: ["new"])
+        #expect(meters.source(id: "new") === new)
+        #expect(meters.source(id: "old") !== old)
+        let next = AudioMixerLevels(sources: ["new": 0.5], left: 0, right: 0)
+        meters.update(levels: next, activeIds: ["new"])
+        #expect(abs(new.level - 20 * log10(0.5)) < 0.001)
+    }
+
+    @Test
     func mutedMicHasNoGain() {
         let mic = SettingsMicsMic(name: "Mic", inputUid: "Mic", connected: true)
         mic.gainDb = -6

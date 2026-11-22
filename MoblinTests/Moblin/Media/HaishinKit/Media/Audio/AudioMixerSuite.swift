@@ -1385,6 +1385,21 @@ struct AudioMixerSuite {
         #expect(levels.sources == ["builtin": 0, "muted": 0])
         #expect(levels.left == 0)
     }
+
+    @Test
+    func measuresRecordingOnlySourceButNotOnStreamMeter() {
+        let mixer = TestAudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        mixer.setSources([createSettings(sends: (stream: 0, recording: 1))])
+        for tick in 0 ..< 40 {
+            mixer.appendBuiltin(createSampleBuffer(format, tick) { _, _ in 0.5 }, createTime(tick))
+            while mixer.renderNextBlock(now: createTime(tick + 1)) != nil {}
+        }
+        let levels = mixer.takeLevels()
+        #expect(levels.sources == ["mic": 0.5])
+        #expect(levels.left == 0)
+        #expect(levels.right == 0)
+    }
 }
 
 private final class Output {
