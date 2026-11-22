@@ -145,6 +145,40 @@ struct AudioMixerSuite {
     }
 
     @Test
+    func sourceDynamicsChangesCompensateLookaheadWithoutRepeatingSamples() throws {
+        let mixer = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        let dry = createSettings(sends: (1, 0))
+        var wet = dry
+        wet.effects = [.compressor(.init(threshold: 0)), .expander(.init(ratio: 1))]
+        mixer.setSources([dry])
+        let output = Output()
+        let recording = Output()
+        for tick in 0 ..< 24 {
+            if tick == 8 {
+                mixer.setSources([wet])
+                let compressor = try #require(wet.effects[0].makeStage())
+                let expander = try #require(wet.effects[1].makeStage())
+                #expect(mixer.latency == 2400 + compressor.latency + expander.latency)
+            } else if tick == 16 {
+                mixer.setSources([dry])
+            }
+            mixer.appendBuiltin(createSampleBuffer(format, tick) { createSine($0, $1) }, createTime(tick))
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                output.append(block)
+                recording.append(block, recording: true)
+            }
+        }
+        #expect(mixer.latency == 2400)
+        #expect(mixer.numberOfSkips == 0)
+        #expect(output.isContinuous && recording.isContinuous)
+        #expect(output.presentationTimeStamps == recording.presentationTimeStamps)
+        let frames = 1024 ..< 20 * 1024
+        #expect(zip(output.samples(0, frames), createSine(frames)).allSatisfy { abs($0 - $1) < 0.0001 })
+        #expect(recording.samples(0, frames).allSatisfy { $0 == 0 })
+    }
+
+    @Test
     func masterEqualizerProcessesBothRoutesWithoutMovingTheirTimestamps() {
         let mixer = AudioMixer()
         let format = createFormat(.pcmFormatFloat32, 2, false)

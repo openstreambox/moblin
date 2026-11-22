@@ -70,6 +70,26 @@ struct AudioMixerEffectSuite {
     }
 
     @Test
+    func expanderReducesLowLevelSoundAndPreservesSpeechLevelSound() throws {
+        let expander = try #require(AudioMixerEffectSettings.expander(.init()).makeStage())
+        let loud = try #require(AudioMixerEffectSettings.expander(.init()).makeStage())
+        var quietPeak: Float = 0
+        var loudPeak: Float = 0
+        for block in 0 ..< 30 {
+            var left = createBlock(block) { 0.01 * createSine(0, $0) }
+            var right = left
+            var loudLeft = left.map { $0 * 60 }
+            var loudRight = loudLeft
+            try #require(expander.process(&left, &right))
+            try #require(loud.process(&loudLeft, &loudRight))
+            quietPeak = peak(left.suffix(256))
+            loudPeak = peak(loudLeft.suffix(256))
+        }
+        #expect(quietPeak < 0.0025)
+        #expect(abs(loudPeak - 0.3) < 0.001)
+    }
+
+    @Test
     func latencyIsImpulseDelay() throws {
         let limiter = try #require(makeAudioMixerLimiter())
         var output: [Float] = []

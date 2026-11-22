@@ -66,15 +66,23 @@ struct AudioMixerCompressor: Equatable {
     var makeupGain: Float = 0
 }
 
+struct AudioMixerExpander: Equatable {
+    var threshold: Float = -40
+    var ratio: Float = 4
+    var attack: Float = 0.003
+    var release: Float = 0.12
+}
+
 enum AudioMixerEffectSettings: Equatable {
     case equalizer(AudioMixerEqualizer)
     case compressor(AudioMixerCompressor)
+    case expander(AudioMixerExpander)
 
     var canUseOnMaster: Bool {
         switch self {
         case .equalizer:
             true
-        case .compressor:
+        case .compressor, .expander:
             false
         }
     }
@@ -97,6 +105,14 @@ enum AudioMixerEffectSettings: Equatable {
                                    attack: settings.attack,
                                    release: settings.release,
                                    makeupGain: settings.makeupGain)
+        case let .expander(settings):
+            makeAudioMixerDynamics(threshold: 0,
+                                   headroom: 40,
+                                   expansionThreshold: settings.threshold,
+                                   expansionRatio: settings.ratio,
+                                   attack: settings.attack,
+                                   release: settings.release,
+                                   makeupGain: 0)
         }
     }
 }
