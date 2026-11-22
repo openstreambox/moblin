@@ -1339,6 +1339,9 @@
         }
       }
     },
+    "%lld days" : {
+      "comment" : "Archive time choice in the Mic panel, in days."
+    },
     "-" : {
       "localizations" : {
         "de" : {
@@ -2357,6 +2360,12 @@
         }
       }
     },
+    "Archive" : {
+      "comment" : "Collapsed section at the bottom of the Mic panel with disconnected mics."
+    },
+    "Archive after" : {
+      "comment" : "Picker for how long a disconnected mic stays in the Mic list before it is archived."
+    },
     "Attack" : {
       "localizations" : {
         "eo" : {
@@ -3351,6 +3360,9 @@
         }
       }
     },
+    "Disconnected mics not seen for the archive time move here, or all at once with Hide all disconnected. A mic goes back to its place in the list when it reconnects, with its settings." : {
+      "comment" : "Footer of the archive section in the Mic panel."
+    },
     "Effects run in this order, after Voice and before gain and pan." : {
       "localizations" : {
         "eo" : {
@@ -4203,6 +4215,18 @@
         }
       }
     },
+    "Hide all disconnected" : {
+      "comment" : "Button in the Mic panel that moves all disconnected mics to the archive."
+    },
+    "In mix" : {
+      "comment" : "Badge on an archived mic that is still marked for mixing."
+    },
+    "Last seen %@" : {
+      "comment" : "When a disconnected mic was last connected."
+    },
+    "Last seen unknown" : {
+      "comment" : "A disconnected mic from before last seen tracking."
+    },
     "Make-up gain" : {
       "localizations" : {
         "eo" : {
@@ -4486,6 +4510,9 @@
           }
         }
       }
+    },
+    "Never" : {
+      "comment" : "Archive time choice that keeps disconnected mics in the Mic list."
     },
     "New source" : {
       "localizations" : {

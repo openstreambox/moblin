@@ -174,13 +174,15 @@ extension Model {
     }
 
     func markMicAsConnected(id: String) {
-        getMicById(id: id)?.connected = true
+        database.mics.objectWillChange.send()
+        getMicById(id: id)?.setConnected(true)
         mic.objectWillChange.send()
         updateMixedMics()
     }
 
     func markMicAsDisconnected(id: String) {
-        getMicById(id: id)?.connected = false
+        database.mics.objectWillChange.send()
+        getMicById(id: id)?.setConnected(false)
         mic.objectWillChange.send()
         updateMixedMics()
     }
@@ -252,6 +254,10 @@ extension Model {
         if database.debug.audioMixer {
             let newChannelMics = channelMics.filter { !database.mics.mics.contains($0) }
             if !newChannelMics.isEmpty {
+                let now = Date.now
+                for mic in newChannelMics {
+                    mic.lastSeen = now
+                }
                 database.mics.mics += newChannelMics
             }
             for channelMic in channelMics {
@@ -261,10 +267,14 @@ extension Model {
                 }
             }
             for mic in database.mics.mics where mic.channel != nil {
-                mic.connected = isAudioChannelMicConnected(mic: mic,
+                let connected = isAudioChannelMicConnected(mic: mic,
                                                            found: found,
                                                            inputUid: self.mic.builtinInputUid,
                                                            numberOfChannels: self.mic.builtinNumberOfChannels)
+                let seen = isAudioChannelMicSeen(mic: mic,
+                                                 connected: connected,
+                                                 inputUid: self.mic.builtinInputUid)
+                mic.setConnected(connected, seen: seen)
             }
         } else {
             database.mics.mics.removeAll { $0.channel != nil }
@@ -277,27 +287,26 @@ extension Model {
                           removeMissing: Bool,
                           insertFirst: Bool = true)
     {
-        var mics = database.mics.mics
-        if removeMissing {
-            mics.removeAll { isKind($0) && !found.contains($0) }
-        }
-        for mic in mics where isKind(mic) {
-            if let foundMic = found.first(where: { $0 == mic }) {
-                mic.name = foundMic.name
-                mic.connected = foundMic.connected
-            } else {
-                mic.connected = false
-            }
-        }
-        for mic in found where !mics.contains(mic) {
-            if insertFirst {
-                mics.insert(mic, at: 0)
-            } else {
-                mics.append(mic)
-            }
-        }
-        database.mics.mics = mics
+        database.mics.mics = syncMicsList(mics: database.mics.mics,
+                                          found: found,
+                                          isKind: isKind,
+                                          removeMissing: removeMissing,
+                                          insertFirst: insertFirst)
         updateMixedMics()
+    }
+
+    func getMicUses(mic: SettingsMicsMic) -> [String] {
+        var uses: [String] = []
+        if database.debug.audioMixer, mic.mixed {
+            uses.append(String(localized: "In mix"))
+        }
+        if database.scenes.contains(where: { $0.overrideMic && $0.micId == mic.id }) {
+            uses.append(String(localized: "Scene"))
+        }
+        if database.talkback.enabled, database.talkback.micId == mic.id {
+            uses.append(String(localized: "Talkback"))
+        }
+        return uses
     }
 
     func getMicById(id: String) -> SettingsMicsMic? {
@@ -600,9 +609,7 @@ extension Model {
     }
 
     private func listMediaPlayerMics() -> [SettingsMicsMic] {
-        database.mediaPlayers.players.map {
-            SettingsMicsMic(name: $0.camera(), inputUid: $0.id.uuidString, connected: true)
-        }
+        makeMediaPlayerMics(players: database.mediaPlayers.players)
     }
 
     private func listScreenCaptureMics() -> [SettingsMicsMic] {
@@ -801,6 +808,43 @@ extension Model {
 
     private func stopTalkback() {
         media.setTalkback(cameraId: nil)
+    }
+}
+
+func syncMicsList(mics: [SettingsMicsMic],
+                  found: [SettingsMicsMic],
+                  isKind: (SettingsMicsMic) -> Bool,
+                  removeMissing: Bool,
+                  insertFirst: Bool = true,
+                  now: Date = .now) -> [SettingsMicsMic]
+{
+    var mics = mics
+    if removeMissing {
+        mics.removeAll { isKind($0) && !found.contains($0) }
+    }
+    for mic in mics where isKind(mic) {
+        if let foundMic = found.first(where: { $0 == mic }) {
+            mic.name = foundMic.name
+            mic.setConnected(foundMic.connected, now: now)
+        } else {
+            mic.setConnected(false, now: now)
+        }
+    }
+    for mic in found where !mics.contains(mic) {
+        mic.setConnected(mic.connected, now: now)
+        mic.lastSeen = now
+        if insertFirst {
+            mics.insert(mic, at: 0)
+        } else {
+            mics.append(mic)
+        }
+    }
+    return mics
+}
+
+func makeMediaPlayerMics(players: [SettingsMediaPlayer]) -> [SettingsMicsMic] {
+    players.map {
+        SettingsMicsMic(name: $0.camera(), inputUid: $0.id.uuidString, connected: true)
     }
 }
 
