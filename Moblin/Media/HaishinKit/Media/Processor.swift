@@ -113,8 +113,11 @@ final class Processor: @unchecked Sendable {
         audio.setDelay(delay: delay)
     }
 
-    func setMixedAudio(sources: [AudioMixerSourceSettings]?, stereo: Bool) {
-        audio.setMixedAudio(sources: sources, stereo: stereo)
+    func setMixedAudio(sources: [AudioMixerSourceSettings]?,
+                       stereo: Bool,
+                       masterEffects: [AudioMixerEffectSettings])
+    {
+        audio.setMixedAudio(sources: sources, stereo: stereo, masterEffects: masterEffects)
     }
 
     func captureMixedAudio(ids: [String],

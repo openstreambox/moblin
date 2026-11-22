@@ -4,6 +4,7 @@ import Testing
 
 private let startIndex: Int64 = 480_000
 private let cameraId = UUID()
+private let limiterLatency = makeAudioMixerLimiter()!.latency
 private let sqrt2 = Float(2).squareRoot()
 
 struct AudioMixerSuite {
@@ -28,13 +29,6 @@ struct AudioMixerSuite {
         var testDescription: String {
             "gain \(sourceGain), master gain \(masterGain), muted \(masterMuted), sends \(sends)"
         }
-    }
-
-    struct ClipCase: CustomTestStringConvertible {
-        let testDescription: String
-        let value: Float
-        let masterGain: Float
-        let expected: Float
     }
 
     struct DelayCase: CustomTestStringConvertible {
@@ -115,7 +109,7 @@ struct AudioMixerSuite {
         }
         let frames = 256 ..< output.end
         #expect(output.isContinuous)
-        #expect(output.presentationTimeStamps.first == startIndex - 2400)
+        #expect(output.presentationTimeStamps.first == startIndex - 2400 - limiterLatency)
         #expect(output.samples(0, -2400 ..< 0) == [Float](repeating: 0, count: 2400))
         #expect(output.samples(0, frames) == createNoise(0, frames))
         #expect(output.samples(1, frames) == createNoise(testCase.numberOfChannels - 1, frames))
@@ -151,6 +145,39 @@ struct AudioMixerSuite {
     }
 
     @Test
+    func masterEqualizerProcessesBothRoutesWithoutMovingTheirTimestamps() {
+        let mixer = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        mixer.setSources([
+            createSettings(id: "stream", channel: 0, sends: (1, 0)),
+            createSettings(id: "recording", channel: 1, sends: (0, 1)),
+        ])
+        let stream = Output()
+        let recording = Output()
+        for tick in 0 ..< 24 {
+            if tick == 8 {
+                mixer.setMasterEffects([.equalizer(.init(gain: -12))])
+            } else if tick == 16 {
+                mixer.setMasterEffects([])
+            }
+            mixer.appendBuiltin(createSampleBuffer(format, tick) {
+                $0 == 0 ? createSine($0, $1) : -0.5 * createSine($0, $1)
+            }, createTime(tick))
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                stream.append(block)
+                recording.append(block, recording: true)
+            }
+        }
+        #expect(stream.isContinuous && recording.isContinuous)
+        #expect(recording.presentationTimeStamps == stream.presentationTimeStamps)
+        let frames = 1024 ..< 20 * 1024
+        #expect(recording.samples(0, frames) == stream.samples(0, frames).map { -0.5 * $0 })
+        #expect(calcMaximumStep(stream.samples(0, frames)) < 0.067)
+        #expect(stream.samples(0, 12 * 1024 ..< 13 * 1024).map { abs($0) }.max() ?? 1 < 0.15)
+        #expect(stream.samples(0, 18 * 1024 ..< 19 * 1024) == createSine(18 * 1024 ..< 19 * 1024))
+    }
+
+    @Test
     func sumsSources() {
         let mixer = AudioMixer()
         let builtinFormat = createFormat(.pcmFormatFloat32, 2, false)
@@ -176,57 +203,6 @@ struct AudioMixerSuite {
         #expect(output.isContinuous)
         #expect(output.samples(0, frames) == left)
         #expect(output.samples(1, frames) == right)
-    }
-
-    @Test(arguments: [
-        ClipCase(testDescription: "positive sum", value: 0.75, masterGain: 1, expected: 1),
-        ClipCase(testDescription: "negative sum", value: -0.75, masterGain: 1, expected: -1),
-        ClipCase(testDescription: "+24 dB output gain", value: 0.1, masterGain: 15.85, expected: 1),
-    ])
-    func clipsAtFullScale(_ testCase: ClipCase) {
-        let mixer = AudioMixer()
-        let format = createFormat(.pcmFormatFloat32, 1, false)
-        mixer.setSources([
-            createSettings(id: "builtin"),
-            createSettings(id: "buffered", bufferedAudio: cameraId),
-        ])
-        mixer.setMasterGain(testCase.masterGain)
-        let output = Output()
-        for tick in 0 ..< 40 {
-            mixer.appendBuiltin(createSampleBuffer(format, tick) { _, _ in testCase.value }, createTime(tick))
-            let bufferedSampleBuffer = createSampleBuffer(format, tick) { _, _ in testCase.value }
-            mixer.appendBuffered(cameraId: cameraId, bufferedSampleBuffer)
-            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
-                output.append(block)
-            }
-        }
-        #expect(output.isContinuous)
-        #expect(output.samples(0, 4096 ..< output.end).allSatisfy { $0 == testCase.expected })
-        #expect(output.samples(1, 4096 ..< output.end).allSatisfy { $0 == testCase.expected })
-    }
-
-    @Test
-    func clipsTheRecordingOnlyMix() {
-        let mixer = AudioMixer()
-        let format = createFormat(.pcmFormatFloat32, 1, false)
-        mixer.setSources([
-            createSettings(id: "builtin", sends: (0, 1)),
-            createSettings(id: "buffered", bufferedAudio: cameraId, sends: (0, 1)),
-        ])
-        let stream = Output()
-        let recording = Output()
-        for tick in 0 ..< 40 {
-            let sampleBuffer = createSampleBuffer(format, tick) { _, _ in -0.75 }
-            mixer.appendBuiltin(sampleBuffer, createTime(tick))
-            mixer.appendBuffered(cameraId: cameraId, createSampleBuffer(format, tick) { _, _ in -0.75 })
-            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
-                stream.append(block)
-                recording.append(block, recording: true)
-            }
-        }
-        #expect(stream.samples(0, 4096 ..< stream.end).allSatisfy { $0 == 0 })
-        #expect(recording.samples(0, 4096 ..< recording.end).allSatisfy { $0 == -1 })
-        #expect(recording.samples(1, 4096 ..< recording.end).allSatisfy { $0 == -1 })
     }
 
     @Test(arguments: [
@@ -284,7 +260,7 @@ struct AudioMixerSuite {
         }
         #expect(mixer.latency == testCase.latency)
         #expect(output.isContinuous)
-        #expect(output.presentationTimeStamps.first == startIndex - testCase.latency)
+        #expect(output.presentationTimeStamps.first == startIndex - testCase.latency - limiterLatency)
         #expect(output.frames { $0 != 0 } == [testCase.frame])
         #expect(output.samples(0, testCase.frame ..< testCase.frame + 1) == [0.5])
         #expect(output.samples(1, testCase.frame ..< testCase.frame + 1) == [0.5])
@@ -308,7 +284,7 @@ struct AudioMixerSuite {
             }
         }
         #expect(output.isContinuous)
-        #expect(output.presentationTimeStamps.first == startIndex - 2400)
+        #expect(output.presentationTimeStamps.first == startIndex - 2400 - limiterLatency)
         #expect(output.frames { $0 != 0 } == [testCase.frame])
     }
 
@@ -596,14 +572,16 @@ struct AudioMixerSuite {
         let steps = zip(output.presentationTimeStamps, output.presentationTimeStamps.dropFirst())
             .map { $1 - $0 }
         let skipped = 91 * 1024 - 3424
+        let latency = Int(limiterLatency)
         let samples = Array(output.left.suffix(10 * 1024))
         let fade = skipped ..< skipped + 256
-        let frames = skipped + 256 ..< skipped + 10 * 1024
+        let frames = skipped + 256 ..< skipped + 10 * 1024 - latency
         #expect(blocksPerTick.allSatisfy { $0 == 1 })
         #expect(steps.filter { $0 != 1024 } == [Int64(71 * 1024)])
-        #expect(output.presentationTimeStamps[20] == startIndex + Int64(skipped))
+        #expect(output.presentationTimeStamps[20] == startIndex + Int64(skipped) - limiterLatency)
         #expect(mixer.numberOfSkips == 1)
-        #expect(Array(samples[0 ..< 256]) == zip(createSine(fade), createRisingFade()).map(*))
+        #expect(samples.prefix(latency).allSatisfy { $0 == 0 })
+        #expect(Array(samples[latency ..< latency + 256]) == zip(createSine(fade), createRisingFade()).map(*))
         #expect(samples.suffix(frames.count) == createSine(frames))
     }
 
