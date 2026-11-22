@@ -190,17 +190,34 @@ private struct MixerEffectSliderView: View {
     var logarithmic = false
     let format: (Float) -> String
     let onEditingEnded: () -> Void
+    @State private var draft: Float?
+
+    private var current: Float {
+        (draft ?? value).clamped(to: range)
+    }
 
     private var position: Binding<Float> {
-        guard logarithmic else {
-            return $value
-        }
-        return Binding(get: { log10(value.clamped(to: range)) },
-                       set: { value = (pow(10, $0) / step).rounded() * step })
+        Binding(get: {
+            logarithmic ? log10(current) : current
+        }, set: {
+            let newValue = logarithmic ? pow(10, $0) : $0
+            draft = ((newValue / step).rounded() * step).clamped(to: range)
+        })
     }
 
     private var positionRange: ClosedRange<Float> {
         logarithmic ? log10(range.lowerBound) ... log10(range.upperBound) : range
+    }
+
+    private func editingChanged(_ editing: Bool) {
+        guard !editing else {
+            return
+        }
+        if let draft {
+            value = draft
+        }
+        draft = nil
+        onEditingEnded()
     }
 
     var body: some View {
@@ -210,19 +227,11 @@ private struct MixerEffectSliderView: View {
                 .minimumScaleFactor(0.8)
                 .frame(width: 105, alignment: .leading)
             if logarithmic {
-                Slider(value: position, in: positionRange) { editing in
-                    if !editing {
-                        onEditingEnded()
-                    }
-                }
+                Slider(value: position, in: positionRange, onEditingChanged: editingChanged)
             } else {
-                Slider(value: position, in: positionRange, step: step) { editing in
-                    if !editing {
-                        onEditingEnded()
-                    }
-                }
+                Slider(value: position, in: positionRange, step: step, onEditingChanged: editingChanged)
             }
-            Text(format(value))
+            Text(format(current))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .frame(width: 75, alignment: .trailing)
