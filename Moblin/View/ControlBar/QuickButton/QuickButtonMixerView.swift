@@ -376,17 +376,14 @@ private struct MixerAddSourceRowView: View {
     }
 }
 
-private func isMixerSourceAddable(_ mic: SettingsMicsMic, current: SettingsMicsMic?) -> Bool {
-    guard let current else {
-        return false
-    }
-    return mic.connected && !mic.mixed && isAudioMicMixable(mic: mic, current: current)
+private func isMixerSourceAddable(_ mic: SettingsMicsMic, current: SettingsMicsMic) -> Bool {
+    isAudioMicAddable(mic: mic, current: current)
 }
 
 private struct MixerAddSourceItemView: View {
     let model: Model
     @ObservedObject var mic: SettingsMicsMic
-    let current: SettingsMicsMic?
+    let current: SettingsMicsMic
     let dismiss: () -> Void
 
     var body: some View {
@@ -406,16 +403,16 @@ private struct MixerAddSourceItemView: View {
 
 private struct MixerAddSourceDividerView: View {
     let mics: [SettingsMicsMic]
-    let current: SettingsMicsMic?
+    let current: SettingsMicsMic
     @State private var visible: Bool
 
-    init(mics: [SettingsMicsMic], current: SettingsMicsMic?) {
+    init(mics: [SettingsMicsMic], current: SettingsMicsMic) {
         self.mics = mics
         self.current = current
         _visible = State(initialValue: Self.isVisible(mics, current))
     }
 
-    private static func isVisible(_ mics: [SettingsMicsMic], _ current: SettingsMicsMic?) -> Bool {
+    private static func isVisible(_ mics: [SettingsMicsMic], _ current: SettingsMicsMic) -> Bool {
         mics.contains(where: { isMixerSourceAddable($0, current: current) })
     }
 
@@ -443,7 +440,7 @@ private struct MixerAddSourceDividerView: View {
 private struct MixerAddSourceListView: View {
     let model: Model
     @ObservedObject var mics: SettingsMics
-    let current: SettingsMicsMic?
+    let current: SettingsMicsMic
     let createSource: () -> Void
     let dismiss: () -> Void
 
@@ -470,7 +467,7 @@ private struct MixerAddSourceListView: View {
 private struct MixerAddSourceView: View {
     let model: Model
     let mics: SettingsMics
-    let current: SettingsMicsMic?
+    let current: SettingsMicsMic
     let createSource: () -> Void
     @State private var presentingAddSource = false
 
@@ -710,7 +707,7 @@ struct QuickButtonMixerView: View {
                             .id("\(mic.id) gain")
                         }
                     }
-                    MixerAddSourceView(model: model, mics: mics, current: current) {
+                    MixerAddSourceView(model: model, mics: mics, current: current ?? modelMic.current) {
                         presentingNewSource = true
                     }
                     MixerSyncLinkView(model: model)
