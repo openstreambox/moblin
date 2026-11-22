@@ -90,6 +90,54 @@ func makeAudioMixerSourceGain(mic: SettingsMicsMic) -> Float {
     mic.muted ? 0 : pow(10, mic.gainDb / 20)
 }
 
+func makeAudioMixerEqualizer(_ equalizer: SettingsAudioMixerEqualizer) -> AudioMixerEffectSettings {
+    .equalizer(AudioMixerEqualizer(frequency: equalizer.frequency,
+                                   gain: equalizer.gain,
+                                   bandwidth: equalizer.bandwidth))
+}
+
+func makeAudioMixerDeEsser(_ deEsser: SettingsAudioMixerDeEsser) -> AudioMixerEffectSettings {
+    .deEsser(AudioMixerDeEsserSettings(frequency: deEsser.frequency,
+                                       bandwidth: deEsser.bandwidth,
+                                       threshold: deEsser.threshold,
+                                       maximumReduction: deEsser.maximumReduction))
+}
+
+func makeAudioMixerSourceEffects(effects: SettingsMicsMicEffects) -> [AudioMixerEffectSettings] {
+    var result: [AudioMixerEffectSettings] = []
+    if effects.expander.enabled {
+        result.append(.expander(AudioMixerExpander(threshold: effects.expander.threshold,
+                                                   ratio: effects.expander.ratio,
+                                                   attack: effects.expander.attack,
+                                                   release: effects.expander.release)))
+    }
+    if effects.equalizer.enabled {
+        result.append(makeAudioMixerEqualizer(effects.equalizer))
+    }
+    if effects.compressor.enabled {
+        result.append(.compressor(AudioMixerCompressor(threshold: effects.compressor.threshold,
+                                                       headroom: effects.compressor.headroom,
+                                                       attack: effects.compressor.attack,
+                                                       release: effects.compressor.release,
+                                                       makeupGain: effects.compressor.makeupGain)))
+    }
+    if effects.deEsser.enabled {
+        result.append(makeAudioMixerDeEsser(effects.deEsser))
+    }
+    return result
+}
+
+func makeAudioMixerOutputEffects(effects: SettingsAudioOutputEffects) -> [AudioMixerEffectSettings] {
+    var result = effects.equalizers
+        .prefix(audioMixerMaximumOutputEqualizers)
+        .filter(\.enabled)
+        .map(makeAudioMixerEqualizer)
+    if effects.deEsser.enabled {
+        result.append(makeAudioMixerDeEsser(effects.deEsser))
+    }
+    return result
+}
+
 private func makeAudioMixerSends(output: SettingsMicsMicOutput) -> (stream: Float, recording: Float) {
     switch output {
     case .streamAndRecording:
@@ -192,7 +240,9 @@ extension Model {
             mic.mixed = mixedMics
         }
         let sources = ([current] + mixedMics).compactMap { makeAudioMixerSourceSettings(mic: $0) }
-        media.setMixedAudio(sources: sources, stereo: database.audio.stereoMix)
+        media.setMixedAudio(sources: sources,
+                            stereo: database.audio.stereoMix,
+                            masterEffects: makeAudioMixerOutputEffects(effects: database.audio.outputEffects))
     }
 
     private func makeAudioMixerSourceSettings(mic: SettingsMicsMic) -> AudioMixerSourceSettings? {
@@ -208,7 +258,8 @@ extension Model {
                                         delay: mic.delay.clamped(to: makeMicDelayRange(audioMixer: true)),
                                         voice: mic.processing == .voice,
                                         sends: makeAudioMixerSends(output: mic.output),
-                                        pan: mic.pan)
+                                        pan: mic.pan,
+                                        effects: makeAudioMixerSourceEffects(effects: mic.effects))
     }
 
     private func makeAudioEncoderChannelsMap() -> [Int: Int] {

@@ -194,6 +194,42 @@ struct SettingsSuite {
     }
 
     @Test
+    func micEffects() throws {
+        let mic = SettingsMicsMic()
+        var decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: JSONEncoder().encode(mic))
+        #expect(!decoded.effects.isEnabled)
+        mic.effects.compressor.enabled = true
+        mic.effects.compressor.threshold = -18
+        mic.effects.equalizer.frequency = 250
+        decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: JSONEncoder().encode(mic))
+        #expect(decoded.effects.isEnabled)
+        #expect(decoded.effects.compressor == mic.effects.compressor)
+        #expect(decoded.effects.equalizer == mic.effects.equalizer)
+        #expect(!decoded.effects.expander.enabled)
+        let json = #"{"effects":{"deEsser":{"enabled":true}}}"#
+        decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: Data(json.utf8))
+        #expect(decoded.effects.deEsser.enabled)
+        #expect(decoded.effects.deEsser.frequency == 6000)
+        #expect(decoded.effects.compressor.threshold == -24)
+    }
+
+    @Test
+    func audioOutputEffects() throws {
+        let audio = SettingsAudio()
+        var decoded = try JSONDecoder().decode(SettingsAudio.self, from: JSONEncoder().encode(audio))
+        #expect(!decoded.outputEffects.isEnabled)
+        var equalizer = SettingsAudioMixerEqualizer()
+        equalizer.enabled = true
+        equalizer.gain = 2
+        audio.outputEffects.equalizers = [equalizer]
+        decoded = try JSONDecoder().decode(SettingsAudio.self, from: JSONEncoder().encode(audio))
+        #expect(decoded.outputEffects.equalizers == [equalizer])
+        #expect(decoded.outputEffects.isEnabled)
+        decoded = try JSONDecoder().decode(SettingsAudio.self, from: Data("{}".utf8))
+        #expect(decoded.outputEffects.equalizers.isEmpty)
+    }
+
+    @Test
     func micMuted() throws {
         let mic = SettingsMicsMic()
         var decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: JSONEncoder().encode(mic))

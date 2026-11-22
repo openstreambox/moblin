@@ -267,4 +267,42 @@ struct ModelAudioMixerSuite {
         mic.muted = false
         #expect(makeAudioMixerSourceGain(mic: mic) == 1)
     }
+
+    @Test
+    func sourceEffectsInFixedOrder() {
+        let effects = SettingsMicsMicEffects()
+        #expect(makeAudioMixerSourceEffects(effects: effects).isEmpty)
+        effects.deEsser.enabled = true
+        effects.compressor.enabled = true
+        effects.equalizer.enabled = true
+        effects.equalizer.gain = -4.5
+        effects.expander.enabled = true
+        let result = makeAudioMixerSourceEffects(effects: effects)
+        #expect(result.count == 4)
+        guard case .expander = result[0], case let .equalizer(equalizer) = result[1],
+              case .compressor = result[2], case .deEsser = result[3]
+        else {
+            Issue.record("Unexpected order")
+            return
+        }
+        #expect(equalizer.gain == -4.5)
+    }
+
+    @Test
+    func outputEffectsAreEqualizersAndDeEsser() {
+        let effects = SettingsAudioOutputEffects()
+        var equalizer = SettingsAudioMixerEqualizer()
+        equalizer.enabled = true
+        var disabled = SettingsAudioMixerEqualizer()
+        disabled.enabled = false
+        effects.equalizers = [equalizer, disabled, equalizer, equalizer]
+        effects.deEsser.enabled = true
+        let result = makeAudioMixerOutputEffects(effects: effects)
+        #expect(result.count == 3)
+        #expect(result.allSatisfy { $0.canUseOnMaster })
+        guard case .deEsser = result.last else {
+            Issue.record("De-esser not last")
+            return
+        }
+    }
 }
