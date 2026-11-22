@@ -212,6 +212,28 @@ struct AudioMixerSuite {
     }
 
     @Test
+    func masterEqualizerAttenuatesBeforeTheLimiter() {
+        let mixer = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        mixer.setSources([createSettings()])
+        mixer.setMasterEffects([.equalizer(.init(gain: -24))])
+        let stream = Output()
+        let recording = Output()
+        for tick in 0 ..< 16 {
+            mixer.appendBuiltin(createSampleBuffer(format, tick) { 4 * createSine($0, $1) }, createTime(tick))
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                stream.append(block)
+                recording.append(block, recording: true)
+            }
+        }
+        let frames = 8 * 1024 ..< 10 * 1024
+        let samples = stream.samples(0, frames)
+        let peak = samples.map { abs($0) }.max() ?? 0
+        #expect(peak > 0.12 && peak < 0.14)
+        #expect(recording.samples(0, frames) == samples)
+    }
+
+    @Test
     func sumsSources() {
         let mixer = AudioMixer()
         let builtinFormat = createFormat(.pcmFormatFloat32, 2, false)

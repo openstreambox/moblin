@@ -9,6 +9,9 @@ struct AudioMixerEffectSuite {
         #expect(equalizer.latency == 0)
         var left = createBlock(0) { createSine(0, $0) }
         var right = createBlock(0) { 0.25 * sin(Float($0) * .pi / 3) }
+        try #require(equalizer.process(&left, &right))
+        left = createBlock(1) { createSine(0, $0) }
+        right = createBlock(1) { 0.25 * sin(Float($0) * .pi / 3) }
         #expect(equalizer.process(&left, &right))
         #expect(abs(peak(left.suffix(256)) - 0.5 * pow(10, -12.0 / 20)) < 0.005)
         #expect(peak(right.suffix(256)) > 0.2)

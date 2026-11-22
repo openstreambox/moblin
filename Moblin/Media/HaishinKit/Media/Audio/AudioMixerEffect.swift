@@ -75,7 +75,7 @@ struct AudioMixerExpander: Equatable {
 
 struct AudioMixerDeEsserSettings: Equatable {
     var frequency: Float = 6000
-    var bandwidth: Float = 1200
+    var bandwidth: Float = 1
     var threshold: Float = -24
     var maximumReduction: Float = 9
 }
@@ -98,13 +98,11 @@ enum AudioMixerEffectSettings: Equatable {
     func makeStage() -> (any AudioMixerEffectStage)? {
         switch self {
         case let .equalizer(settings):
-            AudioMixerEffect(subType: kAudioUnitSubType_NBandEQ, parameters: [
-                kAUNBandEQParam_FilterType: Float(kAUNBandEQFilterType_Parametric),
-                kAUNBandEQParam_Frequency: settings.frequency.clamped(to: 20 ... 20000),
-                kAUNBandEQParam_Gain: settings.gain.clamped(to: -24 ... 24),
-                kAUNBandEQParam_Bandwidth: settings.bandwidth.clamped(to: 0.05 ... 5),
-                kAUNBandEQParam_BypassBand: 0,
-            ], numberOfBands: 1, bypassOnFailure: true)
+            makeAudioMixerEqualizer(frequency: settings.frequency.clamped(to: 20 ... 20000),
+                                    bandwidth: settings.bandwidth,
+                                    gain: settings.gain.clamped(to: -24 ... 24),
+                                    filterType: kAUNBandEQFilterType_Parametric,
+                                    bypassOnFailure: true)
         case let .compressor(settings):
             makeAudioMixerDynamics(threshold: settings.threshold,
                                    headroom: settings.headroom,
@@ -125,6 +123,21 @@ enum AudioMixerEffectSettings: Equatable {
             AudioMixerDeEsser(settings)
         }
     }
+}
+
+private func makeAudioMixerEqualizer(frequency: Float,
+                                     bandwidth: Float,
+                                     gain: Float,
+                                     filterType: Int,
+                                     bypassOnFailure: Bool) -> AudioMixerEffect?
+{
+    AudioMixerEffect(subType: kAudioUnitSubType_NBandEQ, parameters: [
+        kAUNBandEQParam_FilterType: Float(filterType),
+        kAUNBandEQParam_Frequency: frequency,
+        kAUNBandEQParam_Gain: gain,
+        kAUNBandEQParam_Bandwidth: bandwidth.clamped(to: 0.05 ... 5),
+        kAUNBandEQParam_BypassBand: 0,
+    ], numberOfBands: 1, bypassOnFailure: bypassOnFailure)
 }
 
 private func makeAudioMixerDynamics(threshold: Float,
@@ -171,8 +184,8 @@ final class AudioMixerEffectBuffer {
 
 private final class AudioMixerDeEsser: AudioMixerEffectStage {
     let latency: Int64 = 0
-    private let filter: AudioMixerEffect
-    private let sibilance = AudioMixerEffectBuffer()
+    private let notch: AudioMixerEffect
+    private let filtered = AudioMixerEffectBuffer()
     private let threshold: Float
     private let maximumCut: Float
     private let attack = Float(exp(-1 / (0.00015 * audioMixerSampleRate)))
@@ -181,13 +194,16 @@ private final class AudioMixerDeEsser: AudioMixerEffectStage {
     private var bypassed = false
 
     init?(_ settings: AudioMixerDeEsserSettings) {
-        guard let filter = AudioMixerEffect(subType: kAudioUnitSubType_BandPassFilter, parameters: [
-            kBandpassParam_CenterFrequency: settings.frequency.clamped(to: 2000 ... 15000),
-            kBandpassParam_Bandwidth: settings.bandwidth.clamped(to: 100 ... 3600),
-        ]), filter.latency == 0 else {
+        guard let notch = makeAudioMixerEqualizer(frequency: settings.frequency.clamped(to: 2000 ... 15000),
+                                                  bandwidth: settings.bandwidth,
+                                                  gain: 0,
+                                                  filterType: kAUNBandEQFilterType_BandStop,
+                                                  bypassOnFailure: false),
+            notch.latency == 0
+        else {
             return nil
         }
-        self.filter = filter
+        self.notch = notch
         threshold = pow(10, settings.threshold.clamped(to: -60 ... 0) / 20)
         maximumCut = 1 - pow(10, -settings.maximumReduction.clamped(to: 0 ... 24) / 20)
     }
@@ -195,23 +211,23 @@ private final class AudioMixerDeEsser: AudioMixerEffectStage {
     func reset() {
         envelope = 0
         bypassed = false
-        filter.reset()
+        notch.reset()
     }
 
     func process(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>) -> Bool {
         guard !bypassed else {
             return true
         }
-        sibilance.left.update(from: left, count: audioMixerFramesPerBlock)
-        sibilance.right.update(from: right, count: audioMixerFramesPerBlock)
-        guard filter.process(sibilance.left, sibilance.right) else {
+        filtered.left.update(from: left, count: audioMixerFramesPerBlock)
+        filtered.right.update(from: right, count: audioMixerFramesPerBlock)
+        guard notch.process(filtered.left, filtered.right) else {
             bypassed = true
             return true
         }
         var envelope = envelope
         for index in 0 ..< audioMixerFramesPerBlock {
-            let bandLeft = sibilance.left[index]
-            let bandRight = sibilance.right[index]
+            let bandLeft = left[index] - filtered.left[index]
+            let bandRight = right[index] - filtered.right[index]
             let peak = max(abs(bandLeft), abs(bandRight))
             let smoothing = peak > envelope ? attack : release
             envelope = peak + smoothing * (envelope - peak)
@@ -277,6 +293,7 @@ final class AudioMixerEffect: AudioMixerEffectStage {
     private let output: UnsafeMutableAudioBufferListPointer
     private let outputLeft: UnsafeMutablePointer<Float>
     private let outputRight: UnsafeMutablePointer<Float>
+    private let dryInput: AudioMixerEffectBuffer?
     private var timeStamp = AudioTimeStamp()
     private var renderStatus = noErr
     private let bypassOnFailure: Bool
@@ -307,6 +324,7 @@ final class AudioMixerEffect: AudioMixerEffectStage {
         }
         self.audioUnit = audioUnit
         self.bypassOnFailure = bypassOnFailure
+        dryInput = bypassOnFailure ? AudioMixerEffectBuffer() : nil
         output = AudioBufferList.allocate(maximumBuffers: 2)
         outputLeft = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
         outputRight = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
@@ -347,8 +365,15 @@ final class AudioMixerEffect: AudioMixerEffectStage {
             dryDelay?.update(left, right, delay: true)
             return true
         }
-        self.left = left
-        self.right = right
+        if let dryInput {
+            dryInput.left.update(from: left, count: audioMixerFramesPerBlock)
+            dryInput.right.update(from: right, count: audioMixerFramesPerBlock)
+            self.left = dryInput.left
+            self.right = dryInput.right
+        } else {
+            self.left = left
+            self.right = right
+        }
         let byteSize = UInt32(audioMixerFramesPerBlock * MemoryLayout<Float>.size)
         output[0] = AudioBuffer(mNumberChannels: 1, mDataByteSize: byteSize, mData: outputLeft)
         output[1] = AudioBuffer(mNumberChannels: 1, mDataByteSize: byteSize, mData: outputRight)

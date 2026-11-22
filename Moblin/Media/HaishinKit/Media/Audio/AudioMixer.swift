@@ -258,11 +258,15 @@ final class AudioMixerSource {
         return chain.process(left, right)
     }
 
-    private static func makeEffects(voice: Bool, _ settings: [AudioMixerEffectSettings]) -> AudioMixerEffectChain {
+    private static func makeEffects(voice: Bool,
+                                    _ settings: [AudioMixerEffectSettings]) -> AudioMixerEffectChain
+    {
         var stages: [any AudioMixerEffectStage] = voice ? makeAudioMixerVoiceEffects() : []
         var latency = stages.reduce(0) { $0 + $1.latency }
         for setting in settings {
-            guard let stage = setting.makeStage(), latency + stage.latency <= audioMixerFramesPerBlock else {
+            guard let stage = setting.makeStage(),
+                  latency + stage.latency <= audioMixerFramesPerBlock
+            else {
                 continue
             }
             latency += stage.latency
@@ -524,10 +528,10 @@ final class AudioMixer {
         var stream: [any AudioMixerEffectStage] = []
         var recording: [any AudioMixerEffectStage] = []
         for effect in effects {
-            guard effect.canUseOnMaster else {
-                continue
-            }
-            guard let streamStage = effect.makeStage(), let recordingStage = effect.makeStage() else {
+            guard effect.canUseOnMaster,
+                  let streamStage = effect.makeStage(),
+                  let recordingStage = effect.makeStage()
+            else {
                 continue
             }
             guard streamStage.latency == 0, recordingStage.latency == 0 else {
