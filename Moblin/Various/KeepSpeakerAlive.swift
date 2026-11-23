@@ -45,6 +45,10 @@ class AudioPlayer {
         player.volume = volume
     }
 
+    func setNumberOfLoops(_ numberOfLoops: Int) {
+        player.numberOfLoops = numberOfLoops
+    }
+
     func play() {
         KeepSpeakerAlivePlayer.shared.audioPlayed()
         player.play()
