@@ -529,11 +529,8 @@ class RemoteConnection: @unchecked Sendable {
         let cutoff = probationProbeSequences.isEmpty ? nil : ContinuousClock.now - probeHistoryAge
         for offset in stride(from: 4, to: packet.count, by: 4) {
             let sequence = packet.getUInt32Be(offset: offset)
-            if let cutoff {
-                let wasProbe = probationProbeSequences[sequence].map { $0 >= cutoff } ?? false
-                if wasProbe || !packetsInFlight.contains(sequence) {
-                    continue
-                }
+            if let cutoff, let probeSentAt = probationProbeSequences[sequence], probeSentAt >= cutoff {
+                continue
             }
             delegate?.remoteConnectionOnSrtlaAck(sn: sequence)
         }

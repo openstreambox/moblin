@@ -64,6 +64,25 @@ struct SrtlaProbeAccountingSuite {
             #expect(acceptedCurrentAck)
             #expect(fresh.hasDeliveredData)
             #expect(primary.score() == originalScore)
+
+            data.setUInt32Be(value: 43)
+            let idleScore = fresh.score()
+            fresh.sendSrtPacket(packet: data)
+            #expect(fresh.score() < idleScore)
+            var cumulativeAck = Data(count: 20)
+            cumulativeAck.setUInt16Be(value: SrtPacketType.ack.rawValue | srtControlPacketTypeBit)
+            cumulativeAck.setUInt32Be(value: 44, offset: 16)
+            let acceptedCumulativeAck = fresh.handleReceivedMessage(packet: cumulativeAck, from: replacement)
+            #expect(acceptedCumulativeAck)
+            #expect(fresh.score() == idleScore)
+
+            let acceptedDuplicateProbeAck = fresh.handleReceivedMessage(packet: ack, from: replacement)
+            #expect(acceptedDuplicateProbeAck)
+            #expect(fresh.score() == idleScore)
+            ack.setUInt32Be(value: 43, offset: 4)
+            let acceptedOriginalAck = fresh.handleReceivedMessage(packet: ack, from: replacement)
+            #expect(acceptedOriginalAck)
+            #expect(fresh.score() == idleScore + 1)
         }
     }
 
