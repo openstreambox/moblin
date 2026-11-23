@@ -56,6 +56,16 @@ func isAudioChannelMicConnected(mic: SettingsMicsMic,
     return mic.inputUid != inputUid || channel < numberOfChannels
 }
 
+let audioMixerAppAudioGainDb: Float = -10
+
+func makeMixedMicGainDb(mic: SettingsMicsMic) -> Float {
+    if mic.isScreenCapture(), mic.gainDb == 0 {
+        audioMixerAppAudioGainDb
+    } else {
+        mic.gainDb
+    }
+}
+
 func makeMicDelayRange(audioMixer: Bool) -> ClosedRange<Double> {
     audioMixer ? -0.5 ... 2.0 : -0.5 ... 0.5
 }
@@ -77,7 +87,7 @@ extension Model {
         updateAudioGain()
         updateMicDelay()
         if !database.debug.audioMixer {
-            media.setMixedAudio(sources: nil)
+            media.setMixedAudio(sources: nil, stereo: false)
             mic.mixed = []
             if mic.current.channel != nil,
                let deviceMic = database.mics.mics.first(where: {
@@ -94,8 +104,19 @@ extension Model {
     }
 
     func setMicMixed(mic: SettingsMicsMic, mixed: Bool) {
+        if mixed {
+            mic.gainDb = makeMixedMicGainDb(mic: mic)
+        }
         mic.mixed = mixed
         updateMixedMics()
+    }
+
+    func updateStereoMix() {
+        updateMixedMics()
+        if isRecorderRecording {
+            stopRecorderIfNeeded(forceStop: true)
+            startRecorderIfNeeded()
+        }
     }
 
     func updateMixedMics() {
@@ -111,7 +132,7 @@ extension Model {
             mic.mixed = mixedMics
         }
         let sources = ([current] + mixedMics).compactMap { makeAudioMixerSourceSettings(mic: $0) }
-        media.setMixedAudio(sources: sources)
+        media.setMixedAudio(sources: sources, stereo: database.audio.stereoMix)
     }
 
     private func makeAudioMixerSourceSettings(mic: SettingsMicsMic) -> AudioMixerSourceSettings? {
@@ -126,7 +147,8 @@ extension Model {
                                         gain: pow(10, mic.gainDb / 20),
                                         delay: mic.delay.clamped(to: makeMicDelayRange(audioMixer: true)),
                                         voice: mic.processing == .voice,
-                                        sends: makeAudioMixerSends(output: mic.output))
+                                        sends: makeAudioMixerSends(output: mic.output),
+                                        pan: mic.pan)
     }
 
     private func makeAudioEncoderChannelsMap() -> [Int: Int] {

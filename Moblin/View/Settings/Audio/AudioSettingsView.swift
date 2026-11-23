@@ -82,6 +82,13 @@ struct AudioSettingsView: View {
                         Text("Gains")
                     }
                     if debug.audioMixer {
+                        if audio.stereoMix {
+                            NavigationLink {
+                                MicsPanSettingsView(model: model, mic: model.mic)
+                            } label: {
+                                Text("Pans")
+                            }
+                        }
                         NavigationLink {
                             MicsProcessingSettingsView(model: model, mics: database.mics)
                         } label: {
@@ -93,6 +100,17 @@ struct AudioSettingsView: View {
                             Text("Outputs")
                         }
                     }
+                }
+            }
+            if debug.audioMixer {
+                Section {
+                    Toggle("Stereo mix", isOn: $audio.stereoMix)
+                        .onChange(of: audio.stereoMix) { _ in
+                            model.updateStereoMix()
+                        }
+                        .disabled(model.isLive || model.isRecording)
+                } footer: {
+                    Text("Mixes in stereo, with a pan per mic. Off mixes in mono.")
                 }
             }
             if database.showAllSettings {

@@ -393,9 +393,9 @@ final class AudioUnit: NSObject, @unchecked Sendable {
         }
     }
 
-    func setMixedAudio(sources: [AudioMixerSourceSettings]?) {
+    func setMixedAudio(sources: [AudioMixerSourceSettings]?, stereo: Bool) {
         processorPipelineQueue.async {
-            self.setMixedAudioInternal(sources: sources)
+            self.setMixedAudioInternal(sources: sources, stereo: stereo)
         }
     }
 
@@ -466,7 +466,7 @@ final class AudioUnit: NSObject, @unchecked Sendable {
         session.automaticallyConfiguresApplicationAudioSession = false
     }
 
-    private func setMixedAudioInternal(sources: [AudioMixerSourceSettings]?) {
+    private func setMixedAudioInternal(sources: [AudioMixerSourceSettings]?, stereo: Bool) {
         guard let sources else {
             mixer = nil
             updateMixerTimer()
@@ -480,6 +480,7 @@ final class AudioUnit: NSObject, @unchecked Sendable {
             self.mixer = mixer
             updateMixerTimer()
         }
+        mixer?.setStereo(stereo)
         mixer?.setSources(sources)
     }
 
