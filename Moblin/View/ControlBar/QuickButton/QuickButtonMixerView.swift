@@ -199,6 +199,28 @@ private struct MixerSourceGainView: View {
     }
 }
 
+private struct MixerSourcePanView: View {
+    let model: Model
+    @ObservedObject var mic: SettingsMicsMic
+    @ObservedObject var audio: SettingsAudio
+
+    var body: some View {
+        if audio.stereoMix {
+            Section {
+                HStack {
+                    Text("Pan")
+                    Slider(value: $mic.pan, in: -1.0 ... 1.0, step: 0.05)
+                        .onChange(of: mic.pan) { _ in
+                            model.updateMixedMics()
+                        }
+                    Text(formatPan(mic.pan))
+                        .frame(width: 65)
+                }
+            }
+        }
+    }
+}
+
 private struct MixerSourceDelayView: View {
     let model: Model
     @ObservedObject var mic: SettingsMicsMic
@@ -271,17 +293,7 @@ private struct MixerSourceSettingsView: View {
             } footer: {
                 Text("Voice removes rumble and evens out the level of speech.")
             }
-            Section {
-                HStack {
-                    Text("Pan")
-                    Slider(value: $mic.pan, in: -1.0 ... 1.0, step: 0.05)
-                        .onChange(of: mic.pan) { _ in
-                            model.updateMixedMics()
-                        }
-                    Text(formatPan(mic.pan))
-                        .frame(width: 65)
-                }
-            }
+            MixerSourcePanView(model: model, mic: mic, audio: model.database.audio)
             Section {
                 MixerSourceDelayView(model: model, mic: mic)
                 MixerSyncLinkView(model: model)
@@ -371,8 +383,10 @@ private struct MixerOutputView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
-            MixerMeterView(level: meters.left)
-            MixerMeterView(level: meters.right)
+            let outputs = meters.outputs(stereo: audio.stereoMix)
+            ForEach(outputs.indices, id: \.self) {
+                MixerMeterView(level: outputs[$0])
+            }
             Text("Stream")
                 .font(.caption)
                 .foregroundStyle(.secondary)

@@ -116,6 +116,10 @@ class AudioMixerMeters {
         return level
     }
 
+    func outputs(stereo: Bool) -> [AudioLevel] {
+        stereo ? [left, right] : [left]
+    }
+
     func update(levels: AudioMixerLevels, activeIds: Set<String>) {
         sources = sources.filter { activeIds.contains($0.key) }
         for (id, level) in sources {

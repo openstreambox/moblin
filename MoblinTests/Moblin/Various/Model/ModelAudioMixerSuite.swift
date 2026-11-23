@@ -241,6 +241,21 @@ struct ModelAudioMixerSuite {
         #expect(abs(new.level - 20 * log10(0.5)) < 0.001)
     }
 
+    @Test @MainActor
+    func monoMixHasOneOutputMeter() {
+        let meters = AudioMixerMeters()
+        let mono = meters.outputs(stereo: false)
+        let stereo = meters.outputs(stereo: true)
+        #expect(mono.count == 1 && mono[0] === meters.left)
+        #expect(stereo.count == 2 && stereo[0] === meters.left && stereo[1] === meters.right)
+        meters.update(levels: AudioMixerLevels(sources: [:], left: 0.25, right: 0.5), activeIds: [])
+        #expect(abs(meters.left.level - 20 * log10(0.25)) < 0.001)
+        #expect(abs(meters.right.level - 20 * log10(0.5)) < 0.001)
+        meters.update(levels: AudioMixerLevels(sources: [:], left: 0, right: 0), activeIds: [])
+        #expect(meters.left.level == defaultAudioLevel)
+        #expect(meters.right.level == defaultAudioLevel)
+    }
+
     @Test
     func mutedMicHasNoGain() {
         let mic = SettingsMicsMic(name: "Mic", inputUid: "Mic", connected: true)
