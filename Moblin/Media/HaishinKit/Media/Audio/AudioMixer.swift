@@ -161,7 +161,6 @@ final class AudioMixerBus {
     private var gain: Float = 1
     private var targetGain: Float = 1
     private var isMuted = false
-    private let limiter = makeAudioMixerLimiter()
 
     init() {
         let format = AVAudioFormat(standardFormatWithSampleRate: audioMixerSampleRate, channels: 1)!
@@ -169,10 +168,6 @@ final class AudioMixerBus {
         buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
         buffer.frameLength = buffer.frameCapacity
         samples = buffer.floatChannelData![0]
-    }
-
-    var latency: Int64 {
-        limiter?.latency ?? 0
     }
 
     func setGain(_ gain: Float) {
@@ -187,17 +182,12 @@ final class AudioMixerBus {
         vDSP_vclr(samples, 1, vDSP_Length(audioMixerFramesPerBlock))
     }
 
-    func reset() {
-        limiter?.reset()
-    }
-
     func finish() {
         let endGain = isMuted ? 0 : targetGain
         var step = (endGain - gain) / Float(audioMixerFramesPerBlock)
         let frames = vDSP_Length(audioMixerFramesPerBlock)
         vDSP_vrampmul(samples, 1, &gain, &step, samples, 1, frames)
         gain = endGain
-        limiter?.process(samples)
         var low: Float = -1
         var high: Float = 1
         vDSP_vclip(samples, 1, &low, &high, samples, 1, frames)
@@ -255,14 +245,13 @@ final class AudioMixer {
             logger.info("audio-mixer: Skipping \(due - blockStart) frames")
             numberOfSkips += 1
             blockStart = due
-            bus.reset()
             for source in sources {
                 source.reset()
             }
         }
         render(blockStart)
         nextBlockStart = blockStart + frames
-        let presentationTimeStamp = blockStart - bus.latency
+        let presentationTimeStamp = blockStart
         return (
             CMTime(value: presentationTimeStamp, timescale: CMTimeScale(audioMixerSampleRate)),
             bus.buffer

@@ -4,7 +4,6 @@ import Testing
 
 private let startIndex: Int64 = 480_000
 private let cameraId = UUID()
-private let limiterLatency = makeAudioMixerLimiter()!.latency
 
 struct AudioMixerSuite {
     struct FormatCase: CustomTestStringConvertible {
@@ -24,6 +23,13 @@ struct AudioMixerSuite {
         let sourceGain: Float
         let masterGain: Float
         let masterMuted: Bool
+    }
+
+    struct ClipCase: CustomTestStringConvertible {
+        let testDescription: String
+        let value: Float
+        let masterGain: Float
+        let expected: Float
     }
 
     struct DelayCase: CustomTestStringConvertible {
@@ -84,7 +90,7 @@ struct AudioMixerSuite {
         }
         let frames = 256 ..< output.end
         #expect(output.isContinuous)
-        #expect(output.presentationTimeStamps.first == startIndex - 2400 - limiterLatency)
+        #expect(output.presentationTimeStamps.first == startIndex - 2400)
         #expect(output.samples(-2400 ..< 0) == [Float](repeating: 0, count: 2400))
         #expect(output.samples(frames) == createNoise(0, frames))
     }
@@ -113,6 +119,32 @@ struct AudioMixerSuite {
         let expected = zip(createNoise(0, frames), createNoise(2, frames)).map { $0 + 0.25 * $1 }
         #expect(output.isContinuous)
         #expect(output.samples(frames) == expected)
+    }
+
+    @Test(arguments: [
+        ClipCase(testDescription: "positive sum", value: 0.75, masterGain: 1, expected: 1),
+        ClipCase(testDescription: "negative sum", value: -0.75, masterGain: 1, expected: -1),
+        ClipCase(testDescription: "+24 dB output gain", value: 0.1, masterGain: 15.85, expected: 1),
+    ])
+    func clipsAtFullScale(_ testCase: ClipCase) {
+        let mixer = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 1, false)
+        mixer.setSources([
+            createSettings(id: "builtin"),
+            createSettings(id: "buffered", bufferedAudio: cameraId),
+        ])
+        mixer.setMasterGain(testCase.masterGain)
+        let output = Output()
+        for tick in 0 ..< 40 {
+            mixer.appendBuiltin(createSampleBuffer(format, tick) { _, _ in testCase.value }, createTime(tick))
+            let bufferedSampleBuffer = createSampleBuffer(format, tick) { _, _ in testCase.value }
+            mixer.appendBuffered(cameraId: cameraId, bufferedSampleBuffer)
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                output.append(block)
+            }
+        }
+        #expect(output.isContinuous)
+        #expect(output.samples(4096 ..< output.end).allSatisfy { $0 == testCase.expected })
     }
 
     @Test(arguments: [
@@ -166,7 +198,7 @@ struct AudioMixerSuite {
         }
         #expect(mixer.latency == testCase.latency)
         #expect(output.isContinuous)
-        #expect(output.presentationTimeStamps.first == startIndex - testCase.latency - limiterLatency)
+        #expect(output.presentationTimeStamps.first == startIndex - testCase.latency)
         #expect(output.frames { $0 != 0 } == [testCase.frame])
         #expect(output.samples(testCase.frame ..< testCase.frame + 1) == [0.5])
     }
@@ -189,7 +221,7 @@ struct AudioMixerSuite {
             }
         }
         #expect(output.isContinuous)
-        #expect(output.presentationTimeStamps.first == startIndex - 2400 - limiterLatency)
+        #expect(output.presentationTimeStamps.first == startIndex - 2400)
         #expect(output.frames { $0 != 0 } == [testCase.frame])
     }
 
@@ -476,16 +508,14 @@ struct AudioMixerSuite {
         let steps = zip(output.presentationTimeStamps, output.presentationTimeStamps.dropFirst())
             .map { $1 - $0 }
         let skipped = 91 * 1024 - 3424
-        let latency = Int(limiterLatency)
         let samples = Array(output.values.suffix(10 * 1024))
         let fade = skipped ..< skipped + 256
-        let frames = skipped + 256 ..< skipped + 10 * 1024 - latency
+        let frames = skipped + 256 ..< skipped + 10 * 1024
         #expect(blocksPerTick.allSatisfy { $0 == 1 })
         #expect(steps.filter { $0 != 1024 } == [Int64(71 * 1024)])
-        #expect(output.presentationTimeStamps[20] == startIndex + Int64(skipped) - limiterLatency)
+        #expect(output.presentationTimeStamps[20] == startIndex + Int64(skipped))
         #expect(mixer.numberOfSkips == 1)
-        #expect(samples.prefix(latency).allSatisfy { $0 == 0 })
-        #expect(Array(samples[latency ..< latency + 256]) == zip(createSine(fade), createRisingFade()).map(*))
+        #expect(Array(samples[0 ..< 256]) == zip(createSine(fade), createRisingFade()).map(*))
         #expect(samples.suffix(frames.count) == createSine(frames))
     }
 
