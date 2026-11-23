@@ -153,6 +153,18 @@ struct ModelAudioMixerSuite {
     }
 
     @Test
+    func networkSourceChangeKeepsChannelOfHighestPriorityMic() {
+        #expect(isAudioMicSwitchNeeded(current: nil, highestPriority: usbMic, mixed: []))
+        #expect(!isAudioMicSwitchNeeded(current: usbMic1, highestPriority: usbMic, mixed: []))
+        #expect(!isAudioMicSwitchNeeded(current: usbMic2, highestPriority: usbMic, mixed: [usbMic1]))
+        #expect(isAudioMicSwitchNeeded(current: interfaceMic1, highestPriority: usbMic, mixed: []))
+        #expect(isAudioMicSwitchNeeded(current: frontMic, highestPriority: usbMic, mixed: []))
+        #expect(isAudioMicSwitchNeeded(current: usbMic, highestPriority: usbMic1, mixed: []))
+        #expect(!isAudioMicSwitchNeeded(current: usbMic1, highestPriority: srtlaMic, mixed: [srtlaMic]))
+        #expect(isAudioMicSwitchNeeded(current: usbMic1, highestPriority: srtlaMic, mixed: []))
+    }
+
+    @Test
     func channelMicNames() {
         let makeNames = { (channelNames: [String?]) in
             makeAudioChannelMicNames(portName: "Wireless microphone", channelNames: channelNames)

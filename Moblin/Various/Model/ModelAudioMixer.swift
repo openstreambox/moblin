@@ -30,6 +30,21 @@ func makeAudioMixerMixedMics(mics: [SettingsMicsMic], current: SettingsMicsMic) 
     mics.filter { $0.mixed && $0.connected && isAudioMicMixable(mic: $0, current: current) }
 }
 
+func isAudioMicSwitchNeeded(current: SettingsMicsMic?,
+                            highestPriority: SettingsMicsMic,
+                            mixed: [SettingsMicsMic]) -> Bool
+{
+    guard let current else {
+        return true
+    }
+    if mixed.contains(highestPriority) {
+        return false
+    }
+    return !(current.channel != nil
+        && highestPriority.channel == nil
+        && current.inputUid == highestPriority.inputUid)
+}
+
 func isAudioChannelMicConnected(mic: SettingsMicsMic,
                                 found: [SettingsMicsMic],
                                 inputUid: String?,

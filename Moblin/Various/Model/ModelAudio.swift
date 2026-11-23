@@ -163,7 +163,9 @@ extension Model {
                     defaultMic = highestPrioMic
                 }
             } else if let highestPrioMic = getHighestPriorityConnectedMic(),
-                      getConnectedMicById(id: mic.current.id) == nil || !mic.mixed.contains(highestPrioMic)
+                      isAudioMicSwitchNeeded(current: getConnectedMicById(id: mic.current.id),
+                                             highestPriority: highestPrioMic,
+                                             mixed: mic.mixed)
             {
                 selectMic(mic: highestPrioMic)
                 defaultMic = highestPrioMic
