@@ -629,7 +629,7 @@ struct MixerOutputEffectsView: View {
                 }
             } footer: {
                 Text("""
-                Stream and recording, before output gain and the limiter. \
+                Stream and recording, before output gain. \
                 Compressor and expander are set per source.
                 """)
             }

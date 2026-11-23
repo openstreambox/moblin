@@ -5055,144 +5055,144 @@
         }
       }
     },
-    "Stream and recording, before output gain and the limiter. Compressor and expander are set per source." : {
+    "Stream and recording, before output gain. Compressor and expander are set per source." : {
       "localizations" : {
         "eo" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Str3@m @nd r3c0rd1ng, b3f0r3 0_tp_t g@1n @nd th3 l1m1t3r. C0mpr3ss0r @nd 3xp@nd3r @r3 s3t p3r s0_rc3."
+            "value" : "Str3@m @nd r3c0rd1ng, b3f0r3 0_tp_t g@1n. C0mpr3ss0r @nd 3xp@nd3r @r3 s3t p3r s0_rc3."
           }
         },
         "sv" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream och inspelning, före utgångsförstärkning och limitern. Kompressor och expander ställs in per källa."
+            "value" : "Stream och inspelning, före utgångsförstärkning. Kompressor och expander ställs in per källa."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream y grabación, antes de la ganancia de salida y el limitador. El compresor y el expansor se ajustan por fuente."
+            "value" : "Stream y grabación, antes de la ganancia de salida. El compresor y el expansor se ajustan por fuente."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream und Aufnahme, vor Ausgangsverstärkung und Limiter. Kompressor und Expander werden pro Quelle eingestellt."
+            "value" : "Stream und Aufnahme, vor der Ausgangsverstärkung. Kompressor und Expander werden pro Quelle eingestellt."
           }
         },
         "fi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lähetys ja tallenne ennen lähtövahvistusta ja limitteriä. Kompressori ja expander asetetaan lähdekohtaisesti."
+            "value" : "Lähetys ja tallenne ennen lähtövahvistusta. Kompressori ja expander asetetaan lähdekohtaisesti."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream et enregistrement, avant le gain de sortie et le limiteur. Compresseur et expanseur se règlent par source."
+            "value" : "Stream et enregistrement, avant le gain de sortie. Compresseur et expanseur se règlent par source."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream i nagranie, przed wzmocnieniem wyjściowym i limiterem. Kompresor i ekspander ustawia się dla każdego źródła."
+            "value" : "Stream i nagranie, przed wzmocnieniem wyjściowym. Kompresor i ekspander ustawia się dla każdego źródła."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream và bản ghi, trước gain đầu ra và limiter. Compressor và expander được đặt riêng cho từng nguồn."
+            "value" : "Stream và bản ghi, trước gain đầu ra. Compressor và expander được đặt riêng cho từng nguồn."
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream en opname, vóór uitgangsgain en de limiter. Compressor en expander worden per bron ingesteld."
+            "value" : "Stream en opname, vóór uitgangsgain. Compressor en expander worden per bron ingesteld."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "直播和录制,在输出增益和限幅器之前。压缩器和扩展器按音源单独设置。"
+            "value" : "直播和录制,在输出增益之前。压缩器和扩展器按音源单独设置。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "直播與錄影,在輸出增益和限幅器之前。壓縮器與擴展器依音源個別設定。"
+            "value" : "直播與錄影,在輸出增益之前。壓縮器與擴展器依音源個別設定。"
           }
         },
         "zh-Hant-TW" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "直播與錄影,在輸出增益和限幅器之前。壓縮器與擴展器依音源個別設定。"
+            "value" : "直播與錄影,在輸出增益之前。壓縮器與擴展器依音源個別設定。"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Yayın ve kayıt, çıkış kazancı ve limiter öncesinde. Kompresör ve expander kaynak başına ayarlanır."
+            "value" : "Yayın ve kayıt, çıkış kazancı öncesinde. Kompresör ve expander kaynak başına ayarlanır."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Transmissão e gravação, antes do ganho de saída e do limitador. Compressor e expansor são definidos por fonte."
+            "value" : "Transmissão e gravação, antes do ganho de saída. Compressor e expansor são definidos por fonte."
           }
         },
         "pt-PT" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Transmissão e gravação, antes do ganho de saída e do limitador. Compressor e expansor são definidos por fonte."
+            "value" : "Transmissão e gravação, antes do ganho de saída. Compressor e expansor são definidos por fonte."
           }
         },
         "id" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream dan rekaman, sebelum gain output dan limiter. Compressor dan expander diatur per sumber."
+            "value" : "Stream dan rekaman, sebelum gain output. Compressor dan expander diatur per sumber."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream e registrazione, prima del guadagno di uscita e del limiter. Compressore ed expander si impostano per sorgente."
+            "value" : "Stream e registrazione, prima del guadagno di uscita. Compressore ed expander si impostano per sorgente."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "出力ゲインとリミッターの前の配信と録画。コンプレッサーとエキスパンダーはソースごとに設定します。"
+            "value" : "出力ゲインの前の配信と録画。コンプレッサーとエキスパンダーはソースごとに設定します。"
           }
         },
         "hi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "स्ट्रीम और रिकॉर्डिंग, आउटपुट गेन और लिमिटर से पहले। कंप्रेसर और एक्सपैंडर हर सोर्स के लिए अलग सेट होते हैं।"
+            "value" : "स्ट्रीम और रिकॉर्डिंग, आउटपुट गेन से पहले। कंप्रेसर और एक्सपैंडर हर सोर्स के लिए अलग सेट होते हैं।"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "출력 게인과 리미터 이전의 스트림 및 녹화입니다. 컴프레서와 익스팬더는 소스별로 설정합니다."
+            "value" : "출력 게인 이전의 스트림 및 녹화입니다. 컴프레서와 익스팬더는 소스별로 설정합니다."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Стрим и запись, до выходного усиления и лимитера. Компрессор и экспандер настраиваются для каждого источника."
+            "value" : "Стрим и запись, до выходного усиления. Компрессор и экспандер настраиваются для каждого источника."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Стрім і запис, до вихідного підсилення та лімітера. Компресор і експандер налаштовуються для кожного джерела."
+            "value" : "Стрім і запис, до вихідного підсилення. Компресор і експандер налаштовуються для кожного джерела."
           }
         },
         "sk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Stream a nahrávka, pred výstupným zosilnením a limiterom. Kompresor a expander sa nastavujú pre každý zdroj."
+            "value" : "Stream a nahrávka, pred výstupným zosilnením. Kompresor a expander sa nastavujú pre každý zdroj."
           }
         }
       }
