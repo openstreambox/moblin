@@ -347,7 +347,6 @@ private struct MixerOutputView: View {
     let meters: AudioMixerMeters
     @ObservedObject var audio: SettingsAudio
     @ObservedObject var provider: AudioProvider
-    @ObservedObject var limiter: AudioMixerLimiter
     let expanded: Bool
     let toggleExpanded: () -> Void
 
@@ -362,16 +361,6 @@ private struct MixerOutputView: View {
                         .bold()
                         .foregroundStyle(.red)
                         .fixedSize()
-                } else {
-                    HStack(spacing: 3) {
-                        Text("Stream limiter")
-                        Text("\(formatOneDecimal(-limiter.reduction)) dB")
-                    }
-                    .font(.caption)
-                    .bold()
-                    .foregroundStyle(.orange)
-                    .fixedSize()
-                    .opacity(limiter.reduction > 0 ? 1 : 0)
                 }
                 Spacer(minLength: 0)
                 Text("\(formatOneDecimal(audio.gainDb)) dB")
@@ -480,7 +469,6 @@ struct QuickButtonMixerView: View {
                     MixerOutputView(meters: model.audioMixerMeters,
                                     audio: model.database.audio,
                                     provider: model.audio,
-                                    limiter: model.audioMixerMeters.limiter,
                                     expanded: outputExpanded)
                     {
                         toggleOutputExpanded(proxy: proxy)

@@ -102,15 +102,9 @@ private func makeAudioMixerSends(output: SettingsMicsMicOutput) -> (stream: Floa
 }
 
 @MainActor
-class AudioMixerLimiter: ObservableObject {
-    @Published var reduction: Float = 0
-}
-
-@MainActor
 class AudioMixerMeters {
     let left = AudioLevel()
     let right = AudioLevel()
-    let limiter = AudioMixerLimiter()
     private var sources: [String: AudioLevel] = [:]
 
     func source(id: String) -> AudioLevel {
