@@ -8,6 +8,7 @@ struct AudioMixerSourceSettings {
     let id: String
     let bufferedAudio: UUID?
     let channelsMap: [Int: Int]
+    let channel: Int?
     let gain: Float
     let delay: Double
 }
@@ -19,11 +20,12 @@ final class AudioMixerSource {
     private(set) var isRemoved = false
     private let startIndex: Int64
     private let channelsMap: [Int: Int]
+    private let channel: Int?
     private var gain: Float = 0
     private var currentGain: Float = 0
     private var currentDelay: Int64 = 0
     private var numberOfInputChannels = -1
-    private var channel = -1
+    private var readChannel = -1
     private var isSilent = true
     private let samples = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
     private let previousSamples = makeAudioMixerSamples(count: audioMixerFadeFrames)
@@ -33,6 +35,7 @@ final class AudioMixerSource {
         bufferedAudio = settings.bufferedAudio
         self.startIndex = startIndex
         channelsMap = settings.channelsMap
+        channel = settings.channel
         update(settings: settings)
         currentDelay = delay
     }
@@ -47,6 +50,7 @@ final class AudioMixerSource {
             && id == settings.id
             && bufferedAudio == settings.bufferedAudio
             && channelsMap == settings.channelsMap
+            && channel == settings.channel
     }
 
     func update(settings: AudioMixerSourceSettings) {
@@ -111,10 +115,12 @@ final class AudioMixerSource {
 
     private func configure(_ numberOfInputChannels: Int) {
         self.numberOfInputChannels = numberOfInputChannels
-        if let inputChannel = channelsMap[0], inputChannel < numberOfInputChannels {
-            channel = inputChannel
+        if let channel {
+            readChannel = channel
+        } else if let inputChannel = channelsMap[0], inputChannel < numberOfInputChannels {
+            readChannel = inputChannel
         } else {
-            channel = 0
+            readChannel = 0
         }
         isSilent = true
     }
@@ -124,7 +130,7 @@ final class AudioMixerSource {
                       _ count: Int,
                       _ samples: UnsafeMutablePointer<Float>)
     {
-        input.read(channel: channel, at: index, count: count, into: samples)
+        input.read(channel: readChannel, at: index, count: count, into: samples)
     }
 
     private func seek(_ input: AudioMixerInput, _ previousIndex: Int64) {

@@ -65,7 +65,8 @@ struct AudioMixerSuite {
     struct ChannelCase: CustomTestStringConvertible {
         let testDescription: String
         let channelsMap: [Int: Int]
-        let channel: Int
+        var channel: Int?
+        let expected: Int
     }
 
     @Test(arguments: [
@@ -571,15 +572,17 @@ struct AudioMixerSuite {
     }
 
     @Test(arguments: [
-        ChannelCase(testDescription: "channel 3", channelsMap: [0: 2, 1: 3], channel: 2),
-        ChannelCase(testDescription: "channel 2", channelsMap: [0: 1, 1: 1], channel: 1),
-        ChannelCase(testDescription: "silent", channelsMap: [0: -1, 1: 2], channel: -1),
-        ChannelCase(testDescription: "missing channel", channelsMap: [0: 4, 1: 7], channel: 0),
+        ChannelCase(testDescription: "channel 3", channelsMap: [0: 2, 1: 3], expected: 2),
+        ChannelCase(testDescription: "channel 2", channelsMap: [0: 1, 1: 1], expected: 1),
+        ChannelCase(testDescription: "silent", channelsMap: [0: -1, 1: 2], expected: -1),
+        ChannelCase(testDescription: "missing device channel", channelsMap: [0: 4, 1: 7], expected: 0),
+        ChannelCase(testDescription: "channel mic 3", channelsMap: [:], channel: 2, expected: 2),
+        ChannelCase(testDescription: "missing channel 5", channelsMap: [:], channel: 4, expected: -1),
     ])
     func picksChannels(_ testCase: ChannelCase) {
         let mixer = AudioMixer()
         let format = createFormat(.pcmFormatFloat32, 4, false)
-        mixer.setSources([createSettings(channelsMap: testCase.channelsMap)])
+        mixer.setSources([createSettings(channelsMap: testCase.channelsMap, channel: testCase.channel)])
         let output = Output()
         for tick in 0 ..< 20 {
             mixer.appendBuiltin(createSampleBuffer(format, tick), createTime(tick))
@@ -588,7 +591,7 @@ struct AudioMixerSuite {
             }
         }
         let frames = 256 ..< output.end
-        #expect(output.samples(frames) == createNoise(testCase.channel, frames))
+        #expect(output.samples(frames) == createNoise(testCase.expected, frames))
     }
 
     @Test
@@ -643,12 +646,14 @@ private final class Output {
 private func createSettings(id: String = "mic",
                             bufferedAudio: UUID? = nil,
                             channelsMap: [Int: Int] = [0: 0, 1: 1],
+                            channel: Int? = nil,
                             gain: Float = 1,
                             delay: Double = 0) -> AudioMixerSourceSettings
 {
     AudioMixerSourceSettings(id: id,
                              bufferedAudio: bufferedAudio,
                              channelsMap: channelsMap,
+                             channel: channel,
                              gain: gain,
                              delay: delay)
 }
