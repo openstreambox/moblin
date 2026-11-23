@@ -337,6 +337,13 @@ final class Recorder: NSObject, @unchecked Sendable {
                 }
             }
         }
+        if outputSettings[AVFormatIDKey] as? Int == Int(kAudioFormatMPEG4AAC),
+           (outputSettings[AVSampleRateKey] as? NSNumber)?.doubleValue == 48000,
+           outputSettings[AVNumberOfChannelsKey] as? Int == 1,
+           let bitrate = outputSettings[AVEncoderBitRateKey] as? Int, bitrate > 256_000
+        {
+            outputSettings[AVEncoderBitRateKey] = 256_000
+        }
         return makeWriterInput(.audio, outputSettings, sampleBuffer)
     }
 

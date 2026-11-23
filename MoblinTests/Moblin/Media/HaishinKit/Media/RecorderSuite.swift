@@ -26,16 +26,20 @@ private final class RecorderTester: RecorderDelegate, @unchecked Sendable {
         try? FileManager.default.removeItem(at: url)
     }
 
-    func record(audioDelay: (Double) -> Double) -> Bool {
+    func record(audioBitrate: Int? = nil, audioDelay: (Double) -> Double) -> Bool {
         let recorder = Recorder()
         recorder.delegate = self
+        var audioOutputSettings = [
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+            AVSampleRateKey: 48000,
+            AVNumberOfChannelsKey: 0,
+        ]
+        if let audioBitrate {
+            audioOutputSettings[AVEncoderBitRateKey] = audioBitrate
+        }
         recorder.startRunning(url: url,
                               replay: false,
-                              audioOutputSettings: [
-                                  AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                                  AVSampleRateKey: 48000,
-                                  AVNumberOfChannelsKey: 0,
-                              ],
+                              audioOutputSettings: audioOutputSettings,
                               videoOutputSettings: [
                                   AVVideoCodecKey: AVVideoCodecType.h264,
                                   AVVideoWidthKey: 0,
@@ -205,6 +209,14 @@ private func loadVideoFullRange(_ url: URL) async throws -> Bool? {
 
 @Suite(.serialized)
 struct RecorderSuite {
+    @Test
+    func recordsMonoAudioWhenConfiguredFor320Kbps() async throws {
+        let tester = RecorderTester(toneTime: 1.0)
+        try #require(tester.record(audioBitrate: 320_000, audioDelay: { _ in 0 }))
+        let toneTime = try #require(try await loadToneTime(tester.url))
+        #expect(isEqual(toneTime, 1.0, epsilon: 0.06), "Tone at \(toneTime)")
+    }
+
     @Test
     func recordsAudioAndVideo() async throws {
         let tester = RecorderTester(toneTime: 1.0)
