@@ -19,6 +19,10 @@ private final class TestSrtlaConnection: RemoteConnection, @unchecked Sendable {
     override func sendSrtPacket(packet _: Data) {
         sent += 1
     }
+
+    override func sendProbationDataPacket(packet _: Data, now _: ContinuousClock.Instant) {
+        sent += 1
+    }
 }
 
 private final class TestSrtlaSocket: RemoteConnection, @unchecked Sendable {
@@ -44,7 +48,7 @@ private final class TestSrtlaTimer: SrtlaConnectTimer {
     }
 }
 
-private final class TestSrtlaDelegate: SrtlaDelegate {
+final class TestSrtlaDelegate: SrtlaDelegate {
     var restartedRelays: [UUID] = []
 
     func srtlaReady(port _: UInt16) {}

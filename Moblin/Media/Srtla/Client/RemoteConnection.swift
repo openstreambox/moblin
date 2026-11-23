@@ -50,7 +50,7 @@ struct SrtlaReconnectState {
 
 class RemoteConnection: @unchecked Sendable {
     var type: NWInterface.InterfaceType?
-    private var connection: NWConnection? {
+    private(set) var connection: NWConnection? {
         didSet {
             oldValue?.stateUpdateHandler = nil
             oldValue?.forceCancel()
@@ -62,6 +62,8 @@ class RemoteConnection: @unchecked Sendable {
     private var latestReceivedTime = ContinuousClock.now
     private var pendingReconnect: (deadline: ContinuousClock.Instant, restartTunnel: Bool)?
     private var recovery = SrtlaLinkRecovery()
+    private let probeHistoryAge = Duration.seconds(10)
+    private var probationProbeSequences: [UInt32: ContinuousClock.Instant] = [:]
     private var packetsInFlight: Set<UInt32> = []
     private var windowSize: Int = 0
     private var hasFullGroupId: Bool = false
@@ -170,6 +172,7 @@ class RemoteConnection: @unchecked Sendable {
         connection = socket
         pendingReconnect = nil
         recovery.startSocket()
+        probationProbeSequences.removeAll()
         socket.stateUpdateHandler = { [weak self, weak socket] state in
             guard let self, let socket, self.connection === socket else {
                 return
@@ -215,7 +218,16 @@ class RemoteConnection: @unchecked Sendable {
         guard type != nil, score() >= 0, !hasDeliveredData, recovery.takeProbe(now: now) else {
             return
         }
-        sendSrtPacket(packet: packet)
+        sendProbationDataPacket(packet: packet, now: now)
+    }
+
+    func sendProbationDataPacket(packet: Data, now: ContinuousClock.Instant) {
+        if probationProbeSequences.count >= 512 {
+            let cutoff = now - probeHistoryAge
+            probationProbeSequences = probationProbeSequences.filter { $0.value >= cutoff }
+        }
+        probationProbeSequences[getSrtSequenceNumber(packet: packet)] = now
+        sendPacket(packet: packet, probationProbe: true)
     }
 
     func score() -> Int {
@@ -326,7 +338,7 @@ class RemoteConnection: @unchecked Sendable {
         connectTimer.stop()
     }
 
-    private func handleStateUpdate(to state: NWConnection.State) {
+    func handleStateUpdate(to state: NWConnection.State) {
         logger.debug("srtla: \(typeString): State change to \(state)")
         switch state {
         case .ready:
@@ -397,11 +409,8 @@ class RemoteConnection: @unchecked Sendable {
         socket.batch {
             for index in 0 ..< connectionReceiveBatchSize {
                 socket.receiveMessage { [weak self, weak socket] packet, _, _, error in
-                    guard let self, let socket, self.connection === socket else {
+                    guard let self, let socket, self.handleReceivedMessage(packet: packet, from: socket) else {
                         return
-                    }
-                    if let packet, !packet.isEmpty {
-                        self.handlePacketFromClient(packet: packet)
                     }
                     guard index == connectionReceiveBatchSize - 1 else {
                         return
@@ -416,10 +425,21 @@ class RemoteConnection: @unchecked Sendable {
         }
     }
 
-    private func sendPacket(packet: Data) {
+    func handleReceivedMessage(packet: Data?, from socket: NWConnection) -> Bool {
+        guard connection === socket else {
+            return false
+        }
+        if let packet, !packet.isEmpty {
+            handlePacketFromClient(packet: packet)
+        }
+        return true
+    }
+
+    private func sendPacket(packet: Data, probationProbe: Bool = false) {
         if isSrtDataPacket(packet: packet) {
-            let sequence = getSrtSequenceNumber(packet: packet)
-            packetsInFlight.insert(sequence)
+            if !probationProbe {
+                packetsInFlight.insert(getSrtSequenceNumber(packet: packet))
+            }
             if type != nil {
                 recovery.sent()
             }
@@ -506,8 +526,15 @@ class RemoteConnection: @unchecked Sendable {
         if state == .registered {
             recovery.acknowledge()
         }
+        let cutoff = probationProbeSequences.isEmpty ? nil : ContinuousClock.now - probeHistoryAge
         for offset in stride(from: 4, to: packet.count, by: 4) {
             let sequence = packet.getUInt32Be(offset: offset)
+            if let cutoff {
+                let wasProbe = probationProbeSequences[sequence].map { $0 >= cutoff } ?? false
+                if wasProbe || !packetsInFlight.contains(sequence) {
+                    continue
+                }
+            }
             delegate?.remoteConnectionOnSrtlaAck(sn: sequence)
         }
     }
