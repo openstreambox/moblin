@@ -52,6 +52,7 @@ final class AudioMixerSource {
     private var numberOfInputChannels = -1
     private var leftChannel = -1
     private var rightChannel = -1
+    private var isStereoMix = true
     private var isSilent = true
     private let left = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
     private let right = makeAudioMixerSamples(count: audioMixerFramesPerBlock)
@@ -121,9 +122,13 @@ final class AudioMixerSource {
         let startSends = currentSends
         let startPan = currentPan
         let previousDelay = currentDelay
+        if streamBus.isStereo != isStereoMix {
+            isStereoMix = streamBus.isStereo
+            numberOfInputChannels = -1
+        }
         currentGain = isRemoved ? 0 : gain
         currentSends = sends
-        currentPan = pan
+        currentPan = isStereoMix ? pan : (1, 1)
         guard startGain != 0 || currentGain != 0 else {
             isSilent = true
             return
@@ -180,7 +185,7 @@ final class AudioMixerSource {
     private func configure(_ numberOfInputChannels: Int) {
         self.numberOfInputChannels = numberOfInputChannels
         leftChannel = pickChannel(0, numberOfInputChannels)
-        rightChannel = pickChannel(1, numberOfInputChannels)
+        rightChannel = isStereoMix ? pickChannel(1, numberOfInputChannels) : leftChannel
         isSilent = true
     }
 
@@ -272,8 +277,8 @@ final class AudioMixerSource {
                       _ startGain: Float,
                       _ endGain: Float)
     {
-        send(left, bus.left, startGain * startPan.left, endGain * pan.left)
-        send(isStereo ? right : left, bus.right, startGain * startPan.right, endGain * pan.right)
+        send(left, bus.left, startGain * startPan.left, endGain * currentPan.left)
+        send(isStereo ? right : left, bus.right, startGain * startPan.right, endGain * currentPan.right)
     }
 
     private func send(_ samples: UnsafeMutablePointer<Float>,
@@ -288,20 +293,24 @@ final class AudioMixerSource {
 }
 
 final class AudioMixerBus {
-    let buffer: AVAudioPCMBuffer
     let left: UnsafeMutablePointer<Float>
     let right: UnsafeMutablePointer<Float>
+    var isStereo = true
+    private let stereoBuffer: AVAudioPCMBuffer
+    private let monoBuffer: AVAudioPCMBuffer
     private var gain: Float = 1
     private var targetGain: Float = 1
     private var isMuted = false
 
     init() {
-        let format = AVAudioFormat(standardFormatWithSampleRate: audioMixerSampleRate, channels: 2)!
-        let frames = AVAudioFrameCount(audioMixerFramesPerBlock)
-        buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
-        buffer.frameLength = buffer.frameCapacity
-        left = buffer.floatChannelData![0]
-        right = buffer.floatChannelData![1]
+        stereoBuffer = makeAudioMixerBuffer(numberOfChannels: 2)
+        monoBuffer = makeAudioMixerBuffer(numberOfChannels: 1)
+        left = stereoBuffer.floatChannelData![0]
+        right = stereoBuffer.floatChannelData![1]
+    }
+
+    var buffer: AVAudioPCMBuffer {
+        isStereo ? stereoBuffer : monoBuffer
     }
 
     func setGain(_ gain: Float) {
@@ -331,7 +340,19 @@ final class AudioMixerBus {
         var high: Float = 1
         vDSP_vclip(left, 1, &low, &high, left, 1, frames)
         vDSP_vclip(right, 1, &low, &high, right, 1, frames)
+        if !isStereo {
+            monoBuffer.floatChannelData![0].update(from: left, count: audioMixerFramesPerBlock)
+        }
     }
+}
+
+private func makeAudioMixerBuffer(numberOfChannels: AVAudioChannelCount) -> AVAudioPCMBuffer {
+    let format = AVAudioFormat(standardFormatWithSampleRate: audioMixerSampleRate,
+                               channels: numberOfChannels)!
+    let frames = AVAudioFrameCount(audioMixerFramesPerBlock)
+    let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frames)!
+    buffer.frameLength = buffer.frameCapacity
+    return buffer
 }
 
 final class AudioMixer {
@@ -358,6 +379,11 @@ final class AudioMixer {
             }
         }
         updateInputs()
+    }
+
+    func setStereo(_ stereo: Bool) {
+        streamBus.isStereo = stereo
+        recordingBus.isStereo = stereo
     }
 
     func setMasterGain(_ gain: Float) {

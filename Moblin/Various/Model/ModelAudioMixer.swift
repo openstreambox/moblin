@@ -87,7 +87,7 @@ extension Model {
         updateAudioGain()
         updateMicDelay()
         if !database.debug.audioMixer {
-            media.setMixedAudio(sources: nil)
+            media.setMixedAudio(sources: nil, stereo: false)
             mic.mixed = []
             if mic.current.channel != nil,
                let deviceMic = database.mics.mics.first(where: {
@@ -111,6 +111,14 @@ extension Model {
         updateMixedMics()
     }
 
+    func updateStereoMix() {
+        updateMixedMics()
+        if isRecorderRecording {
+            stopRecorderIfNeeded(forceStop: true)
+            startRecorderIfNeeded()
+        }
+    }
+
     func updateMixedMics() {
         guard database.debug.audioMixer else {
             return
@@ -124,7 +132,7 @@ extension Model {
             mic.mixed = mixedMics
         }
         let sources = ([current] + mixedMics).compactMap { makeAudioMixerSourceSettings(mic: $0) }
-        media.setMixedAudio(sources: sources)
+        media.setMixedAudio(sources: sources, stereo: database.audio.stereoMix)
     }
 
     private func makeAudioMixerSourceSettings(mic: SettingsMicsMic) -> AudioMixerSourceSettings? {

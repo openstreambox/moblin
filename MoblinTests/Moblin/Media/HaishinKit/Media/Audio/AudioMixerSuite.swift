@@ -653,6 +653,62 @@ struct AudioMixerSuite {
         #expect(output.samples(1, frames) == createNoise(testCase.right, frames))
     }
 
+    @Test(arguments: [[0: 0, 1: 1], [0: 5, 1: 6]])
+    func mixesInMono(_ channelsMap: [Int: Int]) {
+        let mixer = AudioMixer()
+        mixer.setStereo(false)
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        mixer.setSources([createSettings(channelsMap: channelsMap, sends: (1, 0.5), pan: 1)])
+        let output = Output()
+        let recording = Output()
+        for tick in 0 ..< 20 {
+            mixer.appendBuiltin(createSampleBuffer(format, tick), createTime(tick))
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                output.append(block)
+                recording.append(block, recording: true)
+            }
+        }
+        let frames = 256 ..< output.end
+        let half = createNoise(0, frames).map { 0.5 * $0 }
+        #expect(output.numbersOfChannels == [1])
+        #expect(recording.numbersOfChannels == [1])
+        #expect(output.samples(0, frames) == createNoise(0, frames))
+        #expect(zip(recording.samples(0, frames), half).allSatisfy { abs($0 - $1) < 1e-6 })
+    }
+
+    @Test
+    func switchesBetweenMonoAndStereo() {
+        let mixer = AudioMixer()
+        let format = createFormat(.pcmFormatFloat32, 2, false)
+        mixer.setSources([createSettings(pan: 0.5)])
+        let output = Output()
+        for tick in 0 ..< 36 {
+            if tick == 12 || tick == 24 {
+                mixer.setStereo(tick == 24)
+            }
+            mixer.appendBuiltin(
+                createSampleBuffer(format, tick) { 0.5 * createNoise($0, $1) },
+                createTime(tick)
+            )
+            while let block = mixer.renderNextBlock(now: createTime(tick + 1)) {
+                output.append(block)
+            }
+        }
+        let gains = makeAudioMixerPanGains(pan: 0.5)
+        let stereo = 4096 ..< 8192
+        let mono = 14336 ..< 18432
+        let stereoAgain = 26624 ..< 30720
+        #expect(output.numbersOfChannels == [1, 2])
+        #expect(zip(output.samples(0, stereo), createNoise(0, stereo))
+            .allSatisfy { abs($0 - 0.5 * $1 * gains.left) < 1e-6 })
+        #expect(zip(output.samples(1, stereo), createNoise(1, stereo))
+            .allSatisfy { abs($0 - 0.5 * $1 * gains.right) < 1e-6 })
+        #expect(output.samples(0, mono) == createNoise(0, mono).map { 0.5 * $0 })
+        #expect(output.samples(1, mono).allSatisfy { $0.isNaN })
+        #expect(zip(output.samples(1, stereoAgain), createNoise(1, stereoAgain))
+            .allSatisfy { abs($0 - 0.5 * $1 * gains.right) < 1e-6 })
+    }
+
     @Test(arguments: [
         PanCase(pan: 0, left: 1, right: 1),
         PanCase(pan: -1, left: sqrt2, right: 0),
@@ -970,6 +1026,7 @@ private final class Output {
     private(set) var presentationTimeStamps: [Int64] = []
     private(set) var left: [Float] = []
     private(set) var right: [Float] = []
+    private(set) var numbersOfChannels: Set<AVAudioChannelCount> = []
     private var timescales: Set<CMTimeScale> = []
 
     var isContinuous: Bool {
@@ -997,8 +1054,14 @@ private final class Output {
         timescales.insert(block.presentationTimeStamp.timescale)
         let buffer = recording ? block.recordingBuffer ?? block.buffer : block.buffer
         let count = Int(buffer.frameLength)
+        let numberOfChannels = buffer.format.channelCount
+        numbersOfChannels.insert(numberOfChannels)
         left += UnsafeBufferPointer(start: buffer.floatChannelData![0], count: count)
-        right += UnsafeBufferPointer(start: buffer.floatChannelData![1], count: count)
+        if numberOfChannels > 1 {
+            right += UnsafeBufferPointer(start: buffer.floatChannelData![1], count: count)
+        } else {
+            right += [Float](repeating: .nan, count: count)
+        }
     }
 
     func samples(_ channel: Int, _ frames: Range<Int>) -> [Float] {

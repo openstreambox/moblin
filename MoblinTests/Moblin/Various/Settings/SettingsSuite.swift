@@ -168,6 +168,18 @@ struct SettingsSuite {
     }
 
     @Test
+    func stereoMix() throws {
+        let audio = SettingsAudio()
+        var decoded = try JSONDecoder().decode(SettingsAudio.self, from: JSONEncoder().encode(audio))
+        #expect(!decoded.stereoMix)
+        audio.stereoMix = true
+        decoded = try JSONDecoder().decode(SettingsAudio.self, from: JSONEncoder().encode(audio))
+        #expect(decoded.stereoMix)
+        decoded = try JSONDecoder().decode(SettingsAudio.self, from: Data("{}".utf8))
+        #expect(!decoded.stereoMix)
+    }
+
+    @Test
     func micOutput() throws {
         let mic = SettingsMicsMic()
         var decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: JSONEncoder().encode(mic))
