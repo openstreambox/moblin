@@ -111,9 +111,7 @@ func makeAudioMixerSourceEffects(effects: SettingsMicsMicEffects) -> [AudioMixer
                                                    attack: effects.expander.attack,
                                                    release: effects.expander.release)))
     }
-    if effects.equalizer.enabled {
-        result.append(makeAudioMixerEqualizer(effects.equalizer))
-    }
+    result += makeAudioMixerEqualizers(effects.equalizers)
     if effects.compressor.enabled {
         result.append(.compressor(AudioMixerCompressor(threshold: effects.compressor.threshold,
                                                        headroom: effects.compressor.headroom,
@@ -127,11 +125,15 @@ func makeAudioMixerSourceEffects(effects: SettingsMicsMicEffects) -> [AudioMixer
     return result
 }
 
-func makeAudioMixerOutputEffects(effects: SettingsAudioOutputEffects) -> [AudioMixerEffectSettings] {
-    var result = effects.equalizers
-        .prefix(audioMixerMaximumOutputEqualizers)
+private func makeAudioMixerEqualizers(_ bands: [SettingsAudioMixerEqualizer]) -> [AudioMixerEffectSettings] {
+    bands
+        .prefix(audioMixerMaximumEqualizers)
         .filter(\.enabled)
         .map(makeAudioMixerEqualizer)
+}
+
+func makeAudioMixerOutputEffects(effects: SettingsAudioOutputEffects) -> [AudioMixerEffectSettings] {
+    var result = makeAudioMixerEqualizers(effects.equalizers)
     if effects.deEsser.enabled {
         result.append(makeAudioMixerDeEsser(effects.deEsser))
     }

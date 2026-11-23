@@ -200,14 +200,20 @@ struct SettingsSuite {
         #expect(!decoded.effects.isEnabled)
         mic.effects.compressor.enabled = true
         mic.effects.compressor.threshold = -18
-        mic.effects.equalizer.frequency = 250
+        var low = SettingsAudioMixerEqualizer()
+        low.frequency = 250
+        var high = SettingsAudioMixerEqualizer()
+        high.enabled = true
+        high.frequency = 4000
+        mic.effects.equalizers = [low, high]
         decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: JSONEncoder().encode(mic))
         #expect(decoded.effects.isEnabled)
         #expect(decoded.effects.compressor == mic.effects.compressor)
-        #expect(decoded.effects.equalizer == mic.effects.equalizer)
+        #expect(decoded.effects.equalizers == [low, high])
         #expect(!decoded.effects.expander.enabled)
         decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: Data(#"{"name":"Mic"}"#.utf8))
         #expect(!decoded.effects.isEnabled)
+        #expect(decoded.effects.equalizers.isEmpty)
         #expect(decoded.effects.compressor == SettingsAudioMixerCompressor())
         let json = #"{"effects":{"deEsser":{"enabled":true}}}"#
         decoded = try JSONDecoder().decode(SettingsMicsMic.self, from: Data(json.utf8))
@@ -219,15 +225,16 @@ struct SettingsSuite {
     @Test
     func micEffectsAreClampedOnDecode() throws {
         let json = #"""
-        {"effects":{"equalizer":{"enabled":true,"frequency":-1e30,"gain":40,"bandwidth":0},
+        {"effects":{"equalizers":[{"enabled":true,"frequency":-1e30,"gain":40,"bandwidth":0}],
         "compressor":{"threshold":10,"headroom":0,"attack":5,"release":0,"makeupGain":100},
         "expander":{"threshold":-200,"ratio":0},
         "deEsser":{"frequency":100,"bandwidth":9,"threshold":20,"maximumReduction":-3}}}
         """#
         let effects = try JSONDecoder().decode(SettingsMicsMic.self, from: Data(json.utf8)).effects
-        #expect(effects.equalizer.frequency == audioMixerEqualizerFrequencyRange.lowerBound)
-        #expect(effects.equalizer.gain == audioMixerEqualizerGainRange.upperBound)
-        #expect(effects.equalizer.bandwidth == audioMixerBandwidthRange.lowerBound)
+        let equalizer = try #require(effects.equalizers.first)
+        #expect(equalizer.frequency == audioMixerEqualizerFrequencyRange.lowerBound)
+        #expect(equalizer.gain == audioMixerEqualizerGainRange.upperBound)
+        #expect(equalizer.bandwidth == audioMixerBandwidthRange.lowerBound)
         #expect(effects.compressor.threshold == audioMixerCompressorThresholdRange.upperBound)
         #expect(effects.compressor.headroom == audioMixerHeadroomRange.lowerBound)
         #expect(effects.compressor.attack == audioMixerAttackRange.upperBound)
@@ -239,7 +246,7 @@ struct SettingsSuite {
         #expect(effects.deEsser.bandwidth == audioMixerBandwidthRange.upperBound)
         #expect(effects.deEsser.threshold == audioMixerDeEsserThresholdRange.upperBound)
         #expect(effects.deEsser.maximumReduction == audioMixerMaximumReductionRange.lowerBound)
-        #expect(formatMixerFrequency(effects.equalizer.frequency) == "20 Hz")
+        #expect(formatMixerFrequency(equalizer.frequency) == "20 Hz")
     }
 
     @Test

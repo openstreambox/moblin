@@ -50,7 +50,7 @@ func makeMixerSourceEffectsSummary(_ effects: SettingsMicsMicEffects) -> String 
     if effects.expander.enabled {
         names.append(String(localized: "Expander"))
     }
-    if effects.equalizer.enabled {
+    if effects.equalizers.contains(where: \.enabled) {
         names.append(String(localized: "EQ"))
     }
     if effects.compressor.enabled {
@@ -431,9 +431,50 @@ private struct MixerTimingView: View {
     }
 }
 
-private enum MixerSourceEffect {
+private struct MixerEqualizerBandsView: View {
+    @Binding var equalizers: [SettingsAudioMixerEqualizer]
+    let isExpanded: (UUID) -> Bool
+    let toggle: (UUID) -> Void
+    let expand: (UUID) -> Void
+    let update: () -> Void
+
+    var body: some View {
+        if !equalizers.isEmpty {
+            MixerEqualizerCurveView(equalizers: equalizers)
+        }
+        ForEach($equalizers) { $equalizer in
+            let index = (equalizers.firstIndex(where: { $0.id == equalizer.id }) ?? 0) + 1
+            MixerEffectHeaderView(name: "Band \(index)",
+                                  summary: makeMixerEqualizerSummary(equalizer),
+                                  enabled: $equalizer.enabled,
+                                  expanded: isExpanded(equalizer.id),
+                                  toggleExpanded: { toggle(equalizer.id) },
+                                  onToggle: update)
+            if isExpanded(equalizer.id) {
+                MixerEqualizerControlsView(equalizer: $equalizer, onEditingEnded: update)
+            }
+        }
+        .onDelete { offsets in
+            equalizers.remove(atOffsets: offsets)
+            update()
+        }
+        if equalizers.count < audioMixerMaximumEqualizers {
+            Button {
+                var equalizer = SettingsAudioMixerEqualizer()
+                equalizer.enabled = true
+                equalizers.append(equalizer)
+                expand(equalizer.id)
+                update()
+            } label: {
+                Label("Add band", systemImage: "plus")
+            }
+        }
+    }
+}
+
+private enum MixerSourceEffect: Equatable {
     case expander
-    case equalizer
+    case equalizer(UUID)
     case compressor
     case deEsser
 }
@@ -483,16 +524,13 @@ struct MixerSourceEffectsView: View {
                 }
             }
             Section {
-                MixerEffectHeaderView(name: "EQ",
-                                      summary: makeMixerEqualizerSummary(effects.equalizer),
-                                      enabled: $effects.equalizer.enabled,
-                                      expanded: expanded == .equalizer,
-                                      toggleExpanded: { toggle(.equalizer) },
-                                      onToggle: update)
-                if expanded == .equalizer {
-                    MixerEqualizerCurveView(equalizers: [effects.equalizer])
-                    MixerEqualizerControlsView(equalizer: $effects.equalizer, onEditingEnded: update)
-                }
+                MixerEqualizerBandsView(equalizers: $effects.equalizers,
+                                        isExpanded: { expanded == .equalizer($0) },
+                                        toggle: { toggle(.equalizer($0)) },
+                                        expand: { expanded = .equalizer($0) },
+                                        update: update)
+            } header: {
+                Text("EQ")
             }
             Section {
                 MixerEffectHeaderView(name: "Compressor",
@@ -581,36 +619,14 @@ struct MixerOutputEffectsView: View {
     var body: some View {
         Form {
             Section {
-                if !effects.equalizers.isEmpty {
-                    MixerEqualizerCurveView(equalizers: effects.equalizers)
-                }
-                ForEach($effects.equalizers) { $equalizer in
-                    let index = (effects.equalizers.firstIndex(where: { $0.id == equalizer.id }) ?? 0) + 1
-                    MixerEffectHeaderView(name: "Band \(index)",
-                                          summary: makeMixerEqualizerSummary(equalizer),
-                                          enabled: $equalizer.enabled,
-                                          expanded: expandedId == equalizer.id,
-                                          toggleExpanded: { toggle(equalizer.id) },
-                                          onToggle: update)
-                    if expandedId == equalizer.id {
-                        MixerEqualizerControlsView(equalizer: $equalizer, onEditingEnded: update)
-                    }
-                }
-                .onDelete { offsets in
-                    effects.equalizers.remove(atOffsets: offsets)
-                    update()
-                }
-                if effects.equalizers.count < audioMixerMaximumOutputEqualizers {
-                    Button {
-                        var equalizer = SettingsAudioMixerEqualizer()
-                        equalizer.enabled = true
-                        effects.equalizers.append(equalizer)
-                        expandedId = equalizer.id
-                        update()
-                    } label: {
-                        Label("Add band", systemImage: "plus")
-                    }
-                }
+                MixerEqualizerBandsView(equalizers: $effects.equalizers,
+                                        isExpanded: { expandedId == $0 },
+                                        toggle: toggle,
+                                        expand: {
+                                            expandedId = $0
+                                            deEsserExpanded = false
+                                        },
+                                        update: update)
             } header: {
                 Text("EQ")
             }

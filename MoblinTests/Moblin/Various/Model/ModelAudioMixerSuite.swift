@@ -280,26 +280,51 @@ struct ModelAudioMixerSuite {
         effects.compressor.attack = 0.01
         effects.compressor.release = 0.2
         effects.compressor.makeupGain = 3
-        effects.equalizer.enabled = true
-        effects.equalizer.gain = -4.5
+        var low = SettingsAudioMixerEqualizer()
+        low.enabled = true
+        low.gain = -4.5
+        var high = SettingsAudioMixerEqualizer()
+        high.enabled = true
+        high.frequency = 5000
+        high.gain = 2
+        effects.equalizers = [low, high]
         effects.expander.enabled = true
         effects.expander.threshold = -50
         effects.expander.ratio = 3
         let result = makeAudioMixerSourceEffects(effects: effects)
-        try #require(result.count == 4)
+        try #require(result.count == 5)
         let expander = AudioMixerExpander(threshold: -50, ratio: 3, attack: 0.003, release: 0.12)
         #expect(result[0] == .expander(expander))
-        let equalizer = AudioMixerEqualizer(frequency: 1000, gain: -4.5, bandwidth: 1)
-        #expect(result[1] == .equalizer(equalizer))
-        #expect(result[2] == .compressor(AudioMixerCompressor(threshold: -18,
+        #expect(result[1] == .equalizer(AudioMixerEqualizer(frequency: 1000, gain: -4.5, bandwidth: 1)))
+        #expect(result[2] == .equalizer(AudioMixerEqualizer(frequency: 5000, gain: 2, bandwidth: 1)))
+        #expect(result[3] == .compressor(AudioMixerCompressor(threshold: -18,
                                                               headroom: 4,
                                                               attack: 0.01,
                                                               release: 0.2,
                                                               makeupGain: 3)))
-        #expect(result[3] == .deEsser(AudioMixerDeEsserSettings(frequency: 7000,
+        #expect(result[4] == .deEsser(AudioMixerDeEsserSettings(frequency: 7000,
                                                                 bandwidth: 1,
                                                                 threshold: -24,
                                                                 maximumReduction: 9)))
+    }
+
+    @Test
+    func sourceEffectsAreUpToThreeBands() {
+        func band(_ frequency: Float, enabled: Bool = true) -> SettingsAudioMixerEqualizer {
+            var band = SettingsAudioMixerEqualizer()
+            band.enabled = enabled
+            band.frequency = frequency
+            return band
+        }
+        let effects = SettingsMicsMicEffects()
+        effects.equalizers = [band(100), band(200, enabled: false), band(300), band(400)]
+        #expect(makeAudioMixerSourceEffects(effects: effects) == [
+            .equalizer(AudioMixerEqualizer(frequency: 100, gain: 0, bandwidth: 1)),
+            .equalizer(AudioMixerEqualizer(frequency: 300, gain: 0, bandwidth: 1)),
+        ])
+        effects.equalizers = [band(100, enabled: false)]
+        #expect(!effects.isEnabled)
+        #expect(makeAudioMixerSourceEffects(effects: effects).isEmpty)
     }
 
     @Test

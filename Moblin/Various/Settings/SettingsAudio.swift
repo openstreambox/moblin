@@ -175,19 +175,21 @@ struct SettingsAudioMixerDeEsser: Codable, Equatable {
     }
 }
 
+let audioMixerMaximumEqualizers = 3
+
 class SettingsMicsMicEffects: Codable, ObservableObject {
     @Published var expander: SettingsAudioMixerExpander = .init()
-    @Published var equalizer: SettingsAudioMixerEqualizer = .init()
+    @Published var equalizers: [SettingsAudioMixerEqualizer] = []
     @Published var compressor: SettingsAudioMixerCompressor = .init()
     @Published var deEsser: SettingsAudioMixerDeEsser = .init()
 
     var isEnabled: Bool {
-        expander.enabled || equalizer.enabled || compressor.enabled || deEsser.enabled
+        expander.enabled || equalizers.contains(where: \.enabled) || compressor.enabled || deEsser.enabled
     }
 
     enum CodingKeys: CodingKey {
         case expander
-        case equalizer
+        case equalizers
         case compressor
         case deEsser
     }
@@ -195,7 +197,7 @@ class SettingsMicsMicEffects: Codable, ObservableObject {
     func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(.expander, expander)
-        try container.encode(.equalizer, equalizer)
+        try container.encode(.equalizers, equalizers)
         try container.encode(.compressor, compressor)
         try container.encode(.deEsser, deEsser)
     }
@@ -205,13 +207,11 @@ class SettingsMicsMicEffects: Codable, ObservableObject {
     required init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         expander = container.decode(.expander, SettingsAudioMixerExpander.self, .init())
-        equalizer = container.decode(.equalizer, SettingsAudioMixerEqualizer.self, .init())
+        equalizers = container.decode(.equalizers, [SettingsAudioMixerEqualizer].self, [])
         compressor = container.decode(.compressor, SettingsAudioMixerCompressor.self, .init())
         deEsser = container.decode(.deEsser, SettingsAudioMixerDeEsser.self, .init())
     }
 }
-
-let audioMixerMaximumOutputEqualizers = 3
 
 class SettingsAudioOutputEffects: Codable, ObservableObject {
     @Published var equalizers: [SettingsAudioMixerEqualizer] = []
