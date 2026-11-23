@@ -10,8 +10,15 @@ struct QuickButtonMicMicView: View {
         HStack {
             DraggableItemPrefixView()
             Image(systemName: mic.connected ? "cable.connector" : "cable.connector.slash")
-            Text(mic.name)
-                .lineLimit(1)
+            VStack(alignment: .leading) {
+                Text(mic.name)
+                    .lineLimit(1)
+                if !mic.connected {
+                    Text(formatMicLastSeen(mic.lastSeen))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Spacer()
             if model.database.debug.audioMixer {
                 MixerEffectsMarkView(effects: mic.effects)
@@ -29,16 +36,56 @@ struct QuickButtonMicMicView: View {
     }
 }
 
+private struct QuickButtonMicArchivedMicView: View {
+    let model: Model
+    @ObservedObject var mic: SettingsMicsMic
+
+    var body: some View {
+        HStack {
+            Image(systemName: "cable.connector.slash")
+            VStack(alignment: .leading) {
+                Text(mic.name)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(formatMicLastSeen(mic.lastSeen))
+                    ForEach(model.getMicUses(mic: mic), id: \.self) { use in
+                        Text(use)
+                            .font(.caption2)
+                            .bold()
+                            .padding(.horizontal, 4)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            }
+            .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private func formatArchiveAfter(days: Int) -> String {
+    if days == 0 {
+        String(localized: "Never")
+    } else {
+        String(localized: "\(days) days")
+    }
+}
+
 struct QuickButtonMicView: View {
     let model: Model
     @ObservedObject var mics: SettingsMics
     @ObservedObject var modelMic: Mic
+    @State private var archiveExpanded = false
 
     var body: some View {
+        let visible = mics.visibleMics(current: modelMic.current)
+        let archived = mics.archivedMics(current: modelMic.current)
         Form {
             Section {
                 List {
-                    ForEach(mics.mics) { mic in
+                    ForEach(visible) { mic in
                         QuickButtonMicMicView(model: model, mic: mic, modelMic: modelMic)
                             .deleteDisabled(mic == modelMic.current)
                             .contextMenuDeleteButton(disabled: mic == modelMic.current) {
@@ -46,14 +93,21 @@ struct QuickButtonMicView: View {
                             }
                     }
                     .onDelete { offsets in
-                        mics.mics.remove(atOffsets: offsets)
+                        mics.removeMics(visible, atOffsets: offsets)
                     }
                     .onMove { froms, to in
-                        mics.mics.move(fromOffsets: froms, toOffset: to)
+                        mics.moveVisibleMics(visible, fromOffsets: froms, toOffset: to)
                     }
                 }
                 .onChange(of: mics.mics) { _ in
                     model.updateMixedMics()
+                }
+                if !mics.hideableMics(current: modelMic.current).isEmpty {
+                    Button {
+                        mics.hideAllDisconnected(current: modelMic.current)
+                    } label: {
+                        Label("Hide all disconnected", systemImage: "archivebox")
+                    }
                 }
             } footer: {
                 VStack(alignment: .leading) {
@@ -65,6 +119,59 @@ struct QuickButtonMicView: View {
                     }
                     SwipeLeftToDeleteHelpView(kind: String(localized: "a mic"))
                 }
+            }
+            Section {
+                DisclosureGroup(isExpanded: $archiveExpanded) {
+                    ForEach(archived) { mic in
+                        QuickButtonMicArchivedMicView(model: model, mic: mic)
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    mics.restore(mic: mic)
+                                } label: {
+                                    Label("Restore", systemImage: "tray.and.arrow.up")
+                                }
+                                .tint(.blue)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    mics.removeMic(mic)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                            .contextMenu {
+                                Button {
+                                    mics.restore(mic: mic)
+                                } label: {
+                                    Label("Restore", systemImage: "tray.and.arrow.up")
+                                }
+                                Button(role: .destructive) {
+                                    mics.removeMic(mic)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
+                    }
+                    Picker("Archive after", selection: $mics.archiveAfterDays) {
+                        ForEach(micArchiveAfterDaysChoices, id: \.self) { days in
+                            Text(formatArchiveAfter(days: days))
+                                .tag(days)
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Label("Archive", systemImage: "archivebox")
+                        Spacer()
+                        Text(String(archived.count))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } footer: {
+                Text("""
+                Disconnected mics not seen for the archive time move here, or all at once with \
+                Hide all disconnected. A mic goes back to its place in the list when it reconnects, \
+                with its settings.
+                """)
             }
             if model.database.debug.audioMixer {
                 ShortcutSectionView {

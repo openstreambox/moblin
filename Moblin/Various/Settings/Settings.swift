@@ -2421,6 +2421,7 @@ final class Settings {
     }
 
     func store() {
+        realDatabase.mics.stampSeenMics()
         for stream in realDatabase.streams {
             stream.storeToKeychain()
         }
@@ -2549,6 +2550,10 @@ final class Settings {
         let newButtons = realDatabase.quickButtons
         if realDatabase.quickButtons.count != newButtons.count {
             realDatabase.quickButtons = newButtons
+            store()
+        }
+        if realDatabase.mics.lastSeenSinceIsNew {
+            realDatabase.mics.lastSeenSinceIsNew = false
             store()
         }
     }

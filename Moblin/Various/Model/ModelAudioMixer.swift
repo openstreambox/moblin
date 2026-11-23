@@ -72,6 +72,10 @@ func isAudioChannelMicConnected(mic: SettingsMicsMic,
     return mic.inputUid != inputUid || channel < numberOfChannels
 }
 
+func isAudioChannelMicSeen(mic: SettingsMicsMic, connected: Bool, inputUid: String?) -> Bool {
+    connected && mic.inputUid == inputUid
+}
+
 let audioMixerAppAudioGainDb: Float = -10
 
 func makeMixedMicGainDb(mic: SettingsMicsMic) -> Float {

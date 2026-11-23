@@ -241,6 +241,12 @@ class SettingsAudioOutputEffects: Codable, ObservableObject {
     }
 }
 
+enum SettingsMicsMicArchive: String, Codable {
+    case automatic = "Automatic"
+    case hidden = "Hidden"
+    case shown = "Shown"
+}
+
 class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unchecked Sendable {
     static func == (lhs: SettingsMicsMic, rhs: SettingsMicsMic) -> Bool {
         lhs.inputUid == rhs.inputUid && lhs.dataSourceId == rhs.dataSourceId && lhs.channel == rhs.channel
@@ -268,6 +274,23 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
     @Published var output: SettingsMicsMicOutput = .streamAndRecording
     @Published var muted: Bool = false
     var effects: SettingsMicsMicEffects = .init()
+    @Published var archive: SettingsMicsMicArchive = .automatic
+    var lastSeen: Date?
+    private(set) var seen = false
+
+    func setConnected(_ connected: Bool, seen: Bool? = nil, now: Date = .now) {
+        let seen = seen ?? connected
+        if seen || self.seen {
+            lastSeen = now
+        }
+        self.seen = seen
+        if connected, archive != .automatic {
+            archive = .automatic
+        }
+        if connected != self.connected {
+            self.connected = connected
+        }
+    }
 
     func isAudioSession() -> Bool {
         isBuiltin() || isExternal()
@@ -365,6 +388,8 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
         case pan
         case muted
         case effects
+        case archive
+        case lastSeen
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -382,6 +407,8 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
         try container.encode(.pan, pan)
         try container.encode(.muted, muted)
         try container.encode(.effects, effects)
+        try container.encode(.archive, archive)
+        try container.encode(.lastSeen, lastSeen)
     }
 
     init() {}
@@ -390,6 +417,7 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
         self.name = name
         self.inputUid = inputUid
         self.connected = connected
+        seen = connected
     }
 
     required init(from decoder: any Decoder) throws {
@@ -407,6 +435,8 @@ class SettingsMicsMic: Codable, Identifiable, Equatable, ObservableObject, @unch
         pan = container.decode(.pan, Float.self, 0.0)
         muted = container.decode(.muted, Bool.self, false)
         effects = container.decode(.effects, SettingsMicsMicEffects.self, .init())
+        archive = container.decode(.archive, SettingsMicsMicArchive.self, .automatic)
+        lastSeen = container.decode(.lastSeen, Date?.self, nil)
     }
 }
 
@@ -414,11 +444,16 @@ class SettingsMics: Codable, ObservableObject {
     @Published var mics: [SettingsMicsMic] = []
     @Published var autoSwitch: Bool = true
     var defaultMic: String = ""
+    @Published var archiveAfterDays: Int = 30
+    var lastSeenSince: Date = .now
+    var lastSeenSinceIsNew = false
 
     enum CodingKeys: CodingKey {
         case all
         case autoSwitch
         case defaultMic
+        case archiveAfterDays
+        case lastSeenSince
     }
 
     func encode(to encoder: any Encoder) throws {
@@ -426,6 +461,8 @@ class SettingsMics: Codable, ObservableObject {
         try container.encode(.all, mics)
         try container.encode(.autoSwitch, autoSwitch)
         try container.encode(.defaultMic, defaultMic)
+        try container.encode(.archiveAfterDays, archiveAfterDays)
+        try container.encode(.lastSeenSince, lastSeenSince)
     }
 
     init() {}
@@ -435,7 +472,110 @@ class SettingsMics: Codable, ObservableObject {
         mics = container.decode(.all, [SettingsMicsMic].self, [])
         autoSwitch = container.decode(.autoSwitch, Bool.self, true)
         defaultMic = container.decode(.defaultMic, String.self, "")
+        archiveAfterDays = container.decode(.archiveAfterDays, Int.self, 30) {
+            micArchiveAfterDaysChoices.contains($0)
+        }
+        if let lastSeenSince = try? container.decode(Date.self, forKey: .lastSeenSince) {
+            self.lastSeenSince = lastSeenSince
+        } else {
+            lastSeenSinceIsNew = true
+        }
     }
+
+    func isArchived(mic: SettingsMicsMic, current: SettingsMicsMic, now: Date = .now) -> Bool {
+        if mic.connected || mic == current {
+            return false
+        }
+        switch mic.archive {
+        case .hidden:
+            return true
+        case .shown:
+            return false
+        case .automatic:
+            guard archiveAfterDays > 0 else {
+                return false
+            }
+            let lastSeen = mic.lastSeen ?? lastSeenSince
+            return now.timeIntervalSince(lastSeen) >= Double(archiveAfterDays) * 24 * 60 * 60
+        }
+    }
+
+    func visibleMics(current: SettingsMicsMic, now: Date = .now) -> [SettingsMicsMic] {
+        mics.filter { !isArchived(mic: $0, current: current, now: now) }
+    }
+
+    func archivedMics(current: SettingsMicsMic, now: Date = .now) -> [SettingsMicsMic] {
+        let archived = mics.filter { isArchived(mic: $0, current: current, now: now) }
+        return archived.enumerated().sorted { first, second in
+            switch (first.element.lastSeen, second.element.lastSeen) {
+            case let (firstSeen?, secondSeen?) where firstSeen != secondSeen:
+                firstSeen > secondSeen
+            case (.some, nil):
+                true
+            case (nil, .some):
+                false
+            default:
+                first.offset < second.offset
+            }
+        }.map(\.element)
+    }
+
+    func hideableMics(current: SettingsMicsMic, now: Date = .now) -> [SettingsMicsMic] {
+        visibleMics(current: current, now: now).filter { !$0.connected && $0 != current }
+    }
+
+    func hideAllDisconnected(current: SettingsMicsMic, now: Date = .now) {
+        objectWillChange.send()
+        for mic in hideableMics(current: current, now: now) {
+            mic.archive = .hidden
+        }
+    }
+
+    func restore(mic: SettingsMicsMic) {
+        objectWillChange.send()
+        mic.archive = .shown
+    }
+
+    func moveVisibleMics(_ visible: [SettingsMicsMic], fromOffsets: IndexSet, toOffset: Int) {
+        var moved = visible
+        moved.move(fromOffsets: fromOffsets, toOffset: toOffset)
+        let visibleIds = Set(visible.map(\.id))
+        var next = moved.makeIterator()
+        mics = mics.map { mic in
+            visibleIds.contains(mic.id) ? next.next() ?? mic : mic
+        }
+    }
+
+    func stampSeenMics(now: Date = .now) {
+        for mic in mics where mic.seen {
+            mic.lastSeen = now
+        }
+    }
+
+    func removeMic(_ mic: SettingsMicsMic) {
+        mics.removeAll { $0.id == mic.id }
+    }
+
+    func removeMics(_ shown: [SettingsMicsMic], atOffsets offsets: IndexSet) {
+        let ids = Set(offsets.map { shown[$0].id })
+        mics.removeAll { ids.contains($0.id) }
+    }
+}
+
+let micArchiveAfterDaysChoices = [0, 7, 30, 90]
+
+func formatMicLastSeen(_ lastSeen: Date?, now: Date = .now, calendar: Calendar = .current) -> String {
+    guard let lastSeen else {
+        return String(localized: "Last seen unknown")
+    }
+    let text: String = if calendar.isDate(lastSeen, inSameDayAs: now) {
+        lastSeen.formatted(date: .omitted, time: .shortened)
+    } else if calendar.isDate(lastSeen, equalTo: now, toGranularity: .year) {
+        lastSeen.formatted(.dateTime.day().month(.abbreviated))
+    } else {
+        lastSeen.formatted(date: .abbreviated, time: .omitted)
+    }
+    return String(localized: "Last seen \(text)")
 }
 
 class SettingsAudioOutputToInputChannelsMap: Codable {
