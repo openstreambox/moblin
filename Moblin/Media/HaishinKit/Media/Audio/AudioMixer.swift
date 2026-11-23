@@ -4,6 +4,12 @@ import AVFoundation
 let audioMixerFramesPerBlock = 1024
 private let minimumLatency: Int64 = 2400
 
+enum AudioMixerCaptureError: Error {
+    case missing
+    case notReady
+    case discontinuity
+}
+
 struct AudioMixerSourceSettings {
     let id: String
     let bufferedAudio: UUID?
@@ -142,16 +148,24 @@ final class AudioMixerSource {
         }
     }
 
+    func captureChannel(_ input: AudioMixerInput) -> Int {
+        pickChannel(input.numberOfChannels)
+    }
+
     private func configure(_ numberOfInputChannels: Int) {
         self.numberOfInputChannels = numberOfInputChannels
-        if let channel {
-            readChannel = channel
-        } else if let inputChannel = channelsMap[0], inputChannel < numberOfInputChannels {
-            readChannel = inputChannel
-        } else {
-            readChannel = 0
-        }
+        readChannel = pickChannel(numberOfInputChannels)
         isSilent = true
+    }
+
+    private func pickChannel(_ numberOfInputChannels: Int) -> Int {
+        if let channel {
+            channel
+        } else if let inputChannel = channelsMap[0], inputChannel < numberOfInputChannels {
+            inputChannel
+        } else {
+            0
+        }
     }
 
     private func start(_ input: AudioMixerInput, _ index: Int64) -> Bool {
@@ -299,6 +313,26 @@ final class AudioMixer {
 
     func appendBuffered(cameraId: UUID, _ sampleBuffer: CMSampleBuffer) {
         bufferedInputs[cameraId]?.append(sampleBuffer, sampleBuffer.presentationTimeStamp)
+    }
+
+    func capture(id: String, start: Int64, count: Int) -> Result<[Float], AudioMixerCaptureError> {
+        guard let source = sources.first(where: { $0.id == id && !$0.isRemoved }),
+              let input = input(source.bufferedAudio),
+              input.numberOfChannels > 0
+        else {
+            return .failure(.missing)
+        }
+        guard input.writeIndex >= start + Int64(count) else {
+            return .failure(.notReady)
+        }
+        guard input.oldestIndex <= start, input.latestDiscontinuityIndex <= start else {
+            return .failure(.discontinuity)
+        }
+        var samples = [Float](repeating: 0, count: count)
+        samples.withUnsafeMutableBufferPointer {
+            input.read(channel: source.captureChannel(input), at: start, count: count, into: $0.baseAddress!)
+        }
+        return .success(samples)
     }
 
     func renderNextBlock(now: CMTime) -> (
