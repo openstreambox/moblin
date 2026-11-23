@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 
-private struct QuickButtonMicMicView: View {
+struct QuickButtonMicMicView: View {
     let model: Model
     @ObservedObject var mic: SettingsMicsMic
     @ObservedObject var modelMic: Mic
@@ -13,6 +13,9 @@ private struct QuickButtonMicMicView: View {
             Text(mic.name)
                 .lineLimit(1)
             Spacer()
+            if model.database.debug.audioMixer {
+                MixerEffectsMarkView(effects: mic.effects)
+            }
             Image(systemName: "checkmark")
                 .foregroundStyle(mic == modelMic.current ? .blue : .clear)
                 .bold()
@@ -57,7 +60,7 @@ struct QuickButtonMicView: View {
                     Text("Highest priority mic at the top of the list.")
                     Text("")
                     if model.database.debug.audioMixer {
-                        Text("Tap a mic to make it the main mic. Mix more sources in the Mixer.")
+                        Text("Tap a mic to make it the main mic. Mix more sources in Audio.")
                         Text("")
                     }
                     SwipeLeftToDeleteHelpView(kind: String(localized: "a mic"))
@@ -68,7 +71,7 @@ struct QuickButtonMicView: View {
                     NavigationLink {
                         QuickButtonMixerView(model: model, mics: mics, modelMic: modelMic)
                     } label: {
-                        Label("Mixer", systemImage: "slider.vertical.3")
+                        Label("Audio", systemImage: "slider.vertical.3")
                     }
                 }
             }
