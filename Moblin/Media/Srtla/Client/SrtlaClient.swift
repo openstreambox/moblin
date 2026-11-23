@@ -30,6 +30,7 @@ class SrtlaNetworkInterfaces {
 let srtlaClientQueue = DispatchQueue(label: "com.eerimoq.srtla-client")
 
 class SrtlaClient: NSObject, @unchecked Sendable {
+    private var relayReconnectStates: [UUID: SrtlaReconnectState] = [:]
     private var remoteConnections: [RemoteConnection] = []
     private var localListener: LocalListener?
     private weak let delegate: (any SrtlaDelegate)?
@@ -141,6 +142,7 @@ class SrtlaClient: NSObject, @unchecked Sendable {
             self.stopListener()
             self.cancelConnectTimer()
             self.state = .idle
+            self.relayReconnectStates.removeAll()
             self.networkPathMonitor.cancel()
         }
     }
@@ -163,11 +165,7 @@ class SrtlaClient: NSObject, @unchecked Sendable {
                 relayId: id,
                 relayName: name
             )
-            self.startRemote(connection: remoteConnection, host: host, port: port)
-            if let groupId = self.groupId {
-                remoteConnection.register(groupId: groupId)
-            }
-            self.remoteConnections.append(remoteConnection)
+            self.addMoblink(connection: remoteConnection, host: host, port: port, now: .now)
         }
     }
 
@@ -181,9 +179,34 @@ class SrtlaClient: NSObject, @unchecked Sendable {
             else {
                 return
             }
-            self.stopRemote(connection: remoteConnection)
-            self.remoteConnections.removeAll(where: { $0 === remoteConnection })
+            self.removeMoblink(connection: remoteConnection)
         }
+    }
+
+    func addMoblink(
+        connection: RemoteConnection,
+        host: NWEndpoint.Host,
+        port: NWEndpoint.Port,
+        now: ContinuousClock.Instant
+    ) {
+        let reconnectState = connection.relayId.flatMap { relayReconnectStates.removeValue(forKey: $0) }
+        connection.delegate = self
+        connection.start(host: host, port: port, reconnectState: reconnectState, now: now)
+        if let groupId {
+            connection.register(groupId: groupId)
+        }
+        remoteConnections.append(connection)
+    }
+
+    func removeMoblink(connection: RemoteConnection) {
+        if let relayId = connection.relayId {
+            let reconnectState = connection.reconnectState
+            if reconnectState.noDataStops > 0 {
+                relayReconnectStates[relayId] = reconnectState
+            }
+        }
+        stopRemote(connection: connection)
+        remoteConnections.removeAll(where: { $0 === connection })
     }
 
     func setNetworkInterfaceNames(networkInterfaceNames: [SettingsNetworkInterfaceName]) {
@@ -241,20 +264,40 @@ class SrtlaClient: NSObject, @unchecked Sendable {
     }
 
     func handleLocalPacket(packet: Data) {
-        guard let connection = selectRemoteConnection() else {
+        let now = ContinuousClock.now
+        guard Self.routeLocalPacket(packet: packet, now: now, connections: remoteConnections) else {
             return
         }
-        connection.sendSrtPacket(packet: packet)
-        if isSrtDataPacket(packet: packet) {
-            let now = ContinuousClock.now
-            if latestFlushDataPacketsTime.duration(to: now) > .milliseconds(15) {
-                latestFlushDataPacketsTime = now
-                for remoteConnection in remoteConnections {
-                    remoteConnection.flushDataPackets()
-                }
+        if isSrtDataPacket(packet: packet), latestFlushDataPacketsTime.duration(to: now) > .milliseconds(15) {
+            latestFlushDataPacketsTime = now
+            for connection in remoteConnections {
+                connection.flushDataPackets()
             }
         }
         totalByteCount += Int64(packet.count)
+    }
+
+    static func routeLocalPacket(
+        packet: Data,
+        now: ContinuousClock.Instant,
+        connections: [RemoteConnection]
+    ) -> Bool {
+        let delivering = selectRemoteConnection(connections: connections, deliveringOnly: true)
+        if delivering == nil {
+            for connection in connections {
+                connection.resumeReconnect()
+            }
+        }
+        guard let selected = delivering ?? selectRemoteConnection(connections: connections) else {
+            return false
+        }
+        selected.sendSrtPacket(packet: packet)
+        if delivering != nil, isSrtDataPacket(packet: packet) {
+            for connection in connections where connection !== selected {
+                connection.sendProbationProbe(packet: packet, now: now)
+            }
+        }
+        return true
     }
 
     private func updateConnectionPriorities(connectionPriorities: SettingsStreamSrtConnectionPriorities) {
@@ -415,10 +458,13 @@ class SrtlaClient: NSObject, @unchecked Sendable {
         state = .idle
     }
 
-    private func selectRemoteConnection() -> RemoteConnection? {
+    private static func selectRemoteConnection(
+        connections: [RemoteConnection],
+        deliveringOnly: Bool = false
+    ) -> RemoteConnection? {
         var selectedConnection: RemoteConnection?
         var selectedScore = -1
-        for connection in remoteConnections {
+        for connection in connections where !deliveringOnly || connection.hasDeliveredData {
             let score = connection.score()
             if score > selectedScore {
                 selectedConnection = connection
