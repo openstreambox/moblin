@@ -404,10 +404,8 @@ final class AudioMixerBus {
     private let effectTransition = AudioMixerEffectBuffer()
     private let effectHistory = AudioMixerEffectBuffer()
     private var hasHistory = false
-    private let limiter: AudioMixerEffect?
 
-    init(limiter: AudioMixerEffect?) {
-        self.limiter = limiter
+    init() {
         stereoBuffer = makeAudioMixerBuffer(numberOfChannels: 2)
         monoBuffer = makeAudioMixerBuffer(numberOfChannels: 1)
         left = stereoBuffer.floatChannelData![0]
@@ -416,10 +414,6 @@ final class AudioMixerBus {
 
     var buffer: AVAudioPCMBuffer {
         isStereo ? stereoBuffer : monoBuffer
-    }
-
-    var latency: Int64 {
-        limiter?.latency ?? 0
     }
 
     func setGain(_ gain: Float) {
@@ -442,7 +436,6 @@ final class AudioMixerBus {
 
     func reset() {
         effects?.reset()
-        limiter?.reset()
         hasHistory = false
     }
 
@@ -465,7 +458,6 @@ final class AudioMixerBus {
         let frames = vDSP_Length(audioMixerFramesPerBlock)
         vDSP_vrampmul2(left, right, 1, &gain, &step, left, right, 1, frames)
         gain = endGain
-        limiter?.process(left, right)
         var low: Float = -1
         var high: Float = 1
         vDSP_vclip(left, 1, &low, &high, left, 1, frames)
@@ -491,17 +483,6 @@ final class AudioMixerBus {
             effectTransition.crossfade(into: left, right)
             effectAddress = pendingEffects.isEmpty ? nil : .passUnretained(pendingEffects)
             pendingEffectAddress = nil
-        }
-    }
-
-    func finish(continuing bus: AudioMixerBus) {
-        limiter?.reset()
-        finish()
-        let count = Int(min(latency, Int64(audioMixerFramesPerBlock)))
-        left.update(from: bus.left, count: count)
-        right.update(from: bus.right, count: count)
-        if !isStereo {
-            monoBuffer.floatChannelData![0].update(from: left, count: count)
         }
     }
 }
@@ -545,10 +526,10 @@ final class AudioMixer {
         return renderedLatency
     }
 
-    init(_ configuration: AudioMixerConfiguration) {
+    init() {
         prepareAudioMixerFades()
-        streamBus = AudioMixerBus(limiter: configuration.streamLimiter)
-        recordingBus = AudioMixerBus(limiter: configuration.recordingLimiter)
+        streamBus = AudioMixerBus()
+        recordingBus = AudioMixerBus()
     }
 
     func install(_ graph: AudioMixerGraph) {
@@ -595,7 +576,6 @@ final class AudioMixer {
             .append(sampleBuffer, sampleBuffer.presentationTimeStamp)
     }
 
-    // Copies the source's input as written, before its delay, gain and effects.
     func capture(id: String, start: Int64, count: Int) -> Result<[Float], AudioMixerCaptureError> {
         guard let entry = graph?.entries.first(where: { $0.source.id == id }),
               entry.input.audio.numberOfChannels > 0
@@ -647,7 +627,7 @@ final class AudioMixer {
         }
         let recordingBuffer = render(graph, blockStart)
         nextBlockStart = blockStart + frames
-        let presentationTimeStamp = blockStart - streamBus.latency
+        let presentationTimeStamp = blockStart
         return (
             CMTime(value: presentationTimeStamp, timescale: CMTimeScale(audioMixerSampleRate)),
             streamBus.buffer,
@@ -715,12 +695,10 @@ final class AudioMixer {
             recordingBus.resumeHistory(from: streamBus)
         }
         streamBus.finish()
-        if !isRecordingRendered {
-            recordingBus.skip()
-        } else if wasRecordingRendered {
+        if isRecordingRendered {
             recordingBus.finish()
         } else {
-            recordingBus.finish(continuing: streamBus)
+            recordingBus.skip()
         }
         recordingBlocks = max(recordingBlocks - 1, 0)
         needsGraphUpdate = false

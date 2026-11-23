@@ -125,8 +125,6 @@ final class AudioMixerPreparedSource {
 
 final class AudioMixerConfiguration {
     let sources: [AudioMixerPreparedSource]
-    let streamLimiter: AudioMixerEffect?
-    let recordingLimiter: AudioMixerEffect?
     let masterSettings: [AudioMixerEffectSettings]
     let streamEffects: AudioMixerEffectChain
     let recordingEffects: AudioMixerEffectChain
@@ -138,13 +136,6 @@ final class AudioMixerConfiguration {
         self.sources = sources.map { settings in
             let index = available.firstIndex { $0.settings.hasSameInput(as: settings) }
             return AudioMixerPreparedSource(settings, previous: index.map { available.remove(at: $0) })
-        }
-        if let previous {
-            streamLimiter = previous.streamLimiter
-            recordingLimiter = previous.recordingLimiter
-        } else {
-            streamLimiter = makeAudioMixerLimiter()
-            recordingLimiter = makeAudioMixerLimiter()
         }
         masterSettings = master
         if let previous, previous.masterSettings == master {
@@ -359,8 +350,8 @@ final class AudioMixerPreparation: @unchecked Sendable {
                                                  previous: previous?.graph?.configuration)
             return AudioMixerGraph(config, previous: previous?.graph)
         }
-        let update = Update(graph: graph, mixer: graph.map {
-            previous?.mixer ?? AudioMixer($0.configuration)
+        let update = Update(graph: graph, mixer: graph.map { _ in
+            previous?.mixer ?? AudioMixer()
         })
         handoff.workerUpdate = update
         handoff.inFlight = true

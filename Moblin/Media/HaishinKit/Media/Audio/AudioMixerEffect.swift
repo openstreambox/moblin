@@ -554,10 +554,6 @@ final class AudioMixerEffect: AudioMixerEffectStage {
     }
 }
 
-func makeAudioMixerLimiter() -> AudioMixerEffect? {
-    AudioMixerEffect(subType: kAudioUnitSubType_PeakLimiter)
-}
-
 func makeAudioMixerVoiceEffects() -> [AudioMixerEffect] {
     let highPass = AudioMixerEffect(subType: kAudioUnitSubType_HighPassFilter, parameters: [
         kHipassParam_CutoffFrequency: 90,
