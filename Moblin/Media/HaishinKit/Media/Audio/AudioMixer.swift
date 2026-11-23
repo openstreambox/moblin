@@ -2,7 +2,7 @@ import Accelerate
 import AVFoundation
 
 let audioMixerFramesPerBlock = 1024
-private let minimumLatency: Int64 = 2400
+let audioMixerMinimumLatency: Int64 = 2400
 
 enum AudioMixerCaptureError: Error {
     case missing
@@ -20,6 +20,12 @@ struct AudioMixerSourceSettings {
     let voice: Bool
     let sends: (stream: Float, recording: Float)
     var pan: Float = 0
+    var effects: [AudioMixerEffectSettings] = []
+
+    func hasSameInput(as other: Self) -> Bool {
+        id == other.id && bufferedAudio == other.bufferedAudio && channelsMap == other.channelsMap
+            && channel == other.channel && voice == other.voice
+    }
 }
 
 func makeAudioMixerPanGains(pan: Float) -> (left: Float, right: Float) {
@@ -33,15 +39,31 @@ func makeAudioMixerPanGains(pan: Float) -> (left: Float, right: Float) {
 
 final class AudioMixerSource {
     let id: String
-    let bufferedAudio: UUID?
-    let effectsLatency: Int64
     private(set) var delay: Int64 = 0
-    private(set) var isRemoved = false
-    private let startIndex: Int64
+    private var isRemoved = false
+    var startIndex: Int64 = .min
     private let channelsMap: [Int: Int]
     private let channel: Int?
-    private let voice: Bool
-    private let effects: [AudioMixerEffect]
+    let voice: AudioMixerEffectChain
+    private var effectAddress: Unmanaged<AudioMixerEffectChain>
+    private var pendingEffectAddress: Unmanaged<AudioMixerEffectChain>?
+    private var effectTransitionBlocksRemaining = 0
+
+    private var effects: AudioMixerEffectChain {
+        effectAddress.takeUnretainedValue()
+    }
+
+    private var pendingEffects: AudioMixerEffectChain? {
+        pendingEffectAddress?.takeUnretainedValue()
+    }
+
+    var hasPendingEffects: Bool {
+        pendingEffectAddress != nil
+    }
+
+    private let effectTransition = AudioMixerEffectBuffer()
+    private let effectHistory: AudioMixerEffectBuffer?
+    private let diagnostics: AudioMixerReport
     private var gain: Float = 0
     private var currentGain: Float = 0
     private var pan: (left: Float, right: Float) = (1, 1)
@@ -59,16 +81,18 @@ final class AudioMixerSource {
     private let previousLeft = makeAudioMixerSamples(count: audioMixerFadeFrames)
     private let previousRight = makeAudioMixerSamples(count: audioMixerFadeFrames)
 
-    init(settings: AudioMixerSourceSettings, startIndex: Int64) {
+    init(_ prepared: AudioMixerPreparedSource) {
+        let settings = prepared.settings
         id = settings.id
-        bufferedAudio = settings.bufferedAudio
-        self.startIndex = startIndex
         channelsMap = settings.channelsMap
         channel = settings.channel
-        voice = settings.voice
-        effects = settings.voice ? makeAudioMixerVoiceEffects() : []
-        effectsLatency = effects.reduce(0) { $0 + $1.latency }
-        update(settings: settings)
+        voice = prepared.voice
+        effectHistory = prepared.voice.isEmpty ? nil : AudioMixerEffectBuffer()
+        effectAddress = .passUnretained(prepared.effects)
+        diagnostics = AudioMixerReport { [id = settings.id] reason in
+            logger.debug("audio-mixer: Source \(id) \(reason == 0 ? "input overwritten" : "stalled")")
+        }
+        update(prepared)
         currentDelay = delay
         currentSends = sends
         currentPan = pan
@@ -85,24 +109,21 @@ final class AudioMixerSource {
         leftChannel != rightChannel
     }
 
-    var hasDifferentSends: Bool {
-        sends.stream != sends.recording || currentSends.stream != currentSends.recording
+    func hasDifferentSends(_ target: (stream: Float, recording: Float)) -> Bool {
+        target.stream != target.recording || currentSends.stream != currentSends.recording
     }
 
-    func isSame(_ settings: AudioMixerSourceSettings) -> Bool {
-        !isRemoved
-            && id == settings.id
-            && bufferedAudio == settings.bufferedAudio
-            && channelsMap == settings.channelsMap
-            && channel == settings.channel
-            && voice == settings.voice
+    var effectsLatency: Int64 {
+        voice.latency + max(effects.latency, pendingEffects?.latency ?? 0)
     }
 
-    func update(settings: AudioMixerSourceSettings) {
-        gain = settings.gain
-        delay = Int64((settings.delay * audioMixerSampleRate).rounded())
-        sends = settings.sends
-        pan = makeAudioMixerPanGains(pan: settings.pan)
+    func update(_ prepared: AudioMixerPreparedSource) {
+        gain = prepared.settings.gain
+        delay = prepared.delay
+        sends = prepared.settings.sends
+        pan = prepared.pan
+        pendingEffectAddress = effects === prepared.effects ? nil : .passUnretained(prepared.effects)
+        effectTransitionBlocksRemaining = 4
     }
 
     func remove() {
@@ -131,12 +152,15 @@ final class AudioMixerSource {
         currentPan = isStereoMix ? pan : (1, 1)
         guard startGain != 0 || currentGain != 0 else {
             isSilent = true
+            if let pendingEffects {
+                activateEffects(pendingEffects)
+            }
             return
         }
         if input.numberOfChannels != numberOfInputChannels {
             configure(input.numberOfChannels)
         }
-        let lookahead = audioMixerFramesPerBlock + max(audioMixerFadeFrames, Int(effectsLatency))
+        let lookahead = requiredFrames(effects)
         var delay = delay
         if !isSilent, input.writeIndex - (blockStart - delay) < Int64(lookahead) {
             delay = previousDelay
@@ -146,11 +170,16 @@ final class AudioMixerSource {
         let end = Int(min(max(input.writeIndex - index, 0), Int64(lookahead)))
         let isOverwritten = index < input.oldestIndex
         if isOverwritten, !isSilent {
-            logger.debug("audio-mixer: Source \(id) input overwritten")
+            diagnostics.record(0)
             isSilent = true
         }
         if isSilent {
-            guard end == lookahead, !isOverwritten, index >= startIndex, start(input, index) else {
+            if let pendingEffects {
+                activateEffects(pendingEffects)
+            }
+            guard input.writeIndex - index >= Int64(requiredFrames(effects)),
+                  !isOverwritten, index >= startIndex, start(input, index)
+            else {
                 return
             }
             if startGain != 0 {
@@ -158,18 +187,27 @@ final class AudioMixerSource {
             }
             isSilent = false
         } else {
-            read(input, index + effectsLatency, audioMixerFramesPerBlock, left, right)
+            let latency = voice.latency + effects.latency
+            read(input, index + latency, audioMixerFramesPerBlock, left, right)
             if previousDelay != delay {
-                seek(input, blockStart - previousDelay + effectsLatency)
+                seek(input, blockStart - previousDelay + latency)
             }
-            guard process() else {
-                isSilent = true
-                return
-            }
+            let canTransition = end >= lookahead && previousDelay == delay
+            processEffects(input, index, canTransition: canTransition)
             if end < lookahead {
-                logger.debug("audio-mixer: Source \(id) stalled")
+                diagnostics.record(1)
                 fadeOut(min(end, audioMixerFramesPerBlock))
                 isSilent = true
+                if let pendingEffects {
+                    activateEffects(pendingEffects)
+                }
+            } else if let pendingEffects {
+                effectTransitionBlocksRemaining -= 1
+                if effectTransitionBlocksRemaining == 0 {
+                    fadeOut(audioMixerFramesPerBlock)
+                    activateEffects(pendingEffects)
+                    isSilent = true
+                }
             }
         }
         send(to: streamBus, startPan, startGain * startSends.stream, currentGain * sends.stream)
@@ -200,30 +238,81 @@ final class AudioMixerSource {
     }
 
     private func start(_ input: AudioMixerInput, _ index: Int64) -> Bool {
-        if !effects.isEmpty {
-            for effect in effects {
-                effect.reset()
-            }
-            let primingIndex = index + effectsLatency - Int64(audioMixerFramesPerBlock)
-            read(input, primingIndex, audioMixerFramesPerBlock, left, right)
-            guard process() else {
-                return false
-            }
-        }
-        read(input, index + effectsLatency, audioMixerFramesPerBlock, left, right)
-        return process()
+        start(effects, input, index, left, right)
     }
 
-    private func process() -> Bool {
-        if !effects.isEmpty, !isStereo {
-            right.update(from: left, count: audioMixerFramesPerBlock)
+    private func start(_ chain: AudioMixerEffectChain,
+                       _ input: AudioMixerInput,
+                       _ index: Int64,
+                       _ left: UnsafeMutablePointer<Float>,
+                       _ right: UnsafeMutablePointer<Float>,
+                       resetChain: Bool = true) -> Bool
+    {
+        let inputIndex = index + voice.latency + chain.latency
+        voice.reset()
+        if resetChain {
+            chain.reset()
         }
-        for effect in effects {
-            guard effect.process(left, right) else {
+        if !voice.isEmpty || !chain.isEmpty {
+            read(input, inputIndex - Int64(audioMixerFramesPerBlock), audioMixerFramesPerBlock, left, right)
+            processVoice(left, right, hasEffects: true)
+            guard chain.process(left, right) else {
                 return false
             }
         }
-        return true
+        read(input, inputIndex, audioMixerFramesPerBlock, left, right)
+        processVoice(left, right, hasEffects: !chain.isEmpty)
+        effectHistory?.copy(left, right)
+        return chain.process(left, right)
+    }
+
+    private func processVoice(_ left: UnsafeMutablePointer<Float>, _ right: UnsafeMutablePointer<Float>,
+                              hasEffects: Bool)
+    {
+        if !isStereo, hasEffects || !voice.isEmpty {
+            right.update(from: left, count: audioMixerFramesPerBlock)
+        }
+        voice.process(left, right)
+    }
+
+    private func requiredFrames(_ chain: AudioMixerEffectChain) -> Int {
+        audioMixerFramesPerBlock + max(audioMixerFadeFrames, Int(voice.latency + chain.latency))
+    }
+
+    private func activateEffects(_ chain: AudioMixerEffectChain) {
+        effectAddress = .passUnretained(chain)
+        pendingEffectAddress = nil
+    }
+
+    private func processEffects(_ input: AudioMixerInput, _ index: Int64, canTransition: Bool) {
+        processVoice(left, right, hasEffects: !effects.isEmpty)
+        if canTransition, let pendingEffects, let effectHistory, pendingEffects.latency == effects.latency {
+            effectTransition.copy(effectHistory.left, effectHistory.right)
+            pendingEffects.process(effectTransition.left, effectTransition.right)
+            effectTransition.copy(left, right)
+            pendingEffects.process(effectTransition.left, effectTransition.right)
+            effectHistory.copy(left, right)
+            effects.process(left, right)
+            effectTransition.crossfade(into: left, isStereo ? right : nil)
+            activateEffects(pendingEffects)
+        } else {
+            effectHistory?.copy(left, right)
+            effects.process(left, right)
+            if canTransition, let pendingEffects,
+               input.writeIndex - index >= Int64(requiredFrames(pendingEffects)),
+               start(
+                   pendingEffects,
+                   input,
+                   index,
+                   effectTransition.left,
+                   effectTransition.right,
+                   resetChain: false
+               )
+            {
+                effectTransition.crossfade(into: left, isStereo ? right : nil)
+                activateEffects(pendingEffects)
+            }
+        }
     }
 
     private func read(_ input: AudioMixerInput,
@@ -301,6 +390,20 @@ final class AudioMixerBus {
     private var gain: Float = 1
     private var targetGain: Float = 1
     private var isMuted = false
+    private var effectAddress: Unmanaged<AudioMixerEffectChain>?
+    private var pendingEffectAddress: Unmanaged<AudioMixerEffectChain>?
+
+    private var effects: AudioMixerEffectChain? {
+        effectAddress?.takeUnretainedValue()
+    }
+
+    private var pendingEffects: AudioMixerEffectChain? {
+        pendingEffectAddress?.takeUnretainedValue()
+    }
+
+    private let effectTransition = AudioMixerEffectBuffer()
+    private let effectHistory = AudioMixerEffectBuffer()
+    private var hasHistory = false
 
     init() {
         stereoBuffer = makeAudioMixerBuffer(numberOfChannels: 2)
@@ -321,16 +424,35 @@ final class AudioMixerBus {
         isMuted = muted
     }
 
+    func setEffects(_ effects: AudioMixerEffectChain) {
+        pendingEffectAddress = self.effects === effects || (self.effects == nil && effects.isEmpty)
+            ? nil : .passUnretained(effects)
+    }
+
     func clear() {
         vDSP_vclr(left, 1, vDSP_Length(audioMixerFramesPerBlock))
         vDSP_vclr(right, 1, vDSP_Length(audioMixerFramesPerBlock))
     }
 
+    func reset() {
+        effects?.reset()
+        hasHistory = false
+    }
+
     func skip() {
         gain = isMuted ? 0 : targetGain
+        hasHistory = false
+    }
+
+    func resumeHistory(from bus: AudioMixerBus) {
+        hasHistory = bus.hasHistory
+        if hasHistory {
+            effectHistory.copy(bus.effectHistory.left, bus.effectHistory.right)
+        }
     }
 
     func finish() {
+        processEffects()
         let endGain = isMuted ? 0 : targetGain
         var step = (endGain - gain) / Float(audioMixerFramesPerBlock)
         let frames = vDSP_Length(audioMixerFramesPerBlock)
@@ -342,6 +464,25 @@ final class AudioMixerBus {
         vDSP_vclip(right, 1, &low, &high, right, 1, frames)
         if !isStereo {
             monoBuffer.floatChannelData![0].update(from: left, count: audioMixerFramesPerBlock)
+        }
+    }
+
+    private func processEffects() {
+        if let pendingEffects {
+            if hasHistory {
+                effectTransition.copy(effectHistory.left, effectHistory.right)
+                pendingEffects.process(effectTransition.left, effectTransition.right)
+            }
+            effectTransition.copy(left, right)
+        }
+        effectHistory.copy(left, right)
+        hasHistory = true
+        effects?.process(left, right)
+        if let pendingEffects {
+            pendingEffects.process(effectTransition.left, effectTransition.right)
+            effectTransition.crossfade(into: left, right)
+            effectAddress = pendingEffects.isEmpty ? nil : .passUnretained(pendingEffects)
+            pendingEffectAddress = nil
         }
     }
 }
@@ -356,29 +497,58 @@ private func makeAudioMixerBuffer(numberOfChannels: AVAudioChannelCount) -> AVAu
 }
 
 final class AudioMixer {
-    private(set) var sources: [AudioMixerSource] = []
-    private(set) var builtinInput: AudioMixerInput?
-    private(set) var bufferedInputs: [UUID: AudioMixerInput] = [:]
-    private(set) var latency = minimumLatency
+    private var renderedLatency = audioMixerMinimumLatency
     private(set) var numberOfSkips = 0
-    private let streamBus = AudioMixerBus()
-    private let recordingBus = AudioMixerBus()
+    private let streamBus: AudioMixerBus
+    private let recordingBus: AudioMixerBus
     private var recordingBlocks = 0
     private var nextBlockStart: Int64?
+    private let latencyReport = AudioMixerReport { logger.debug("audio-mixer: Latency \($0) frames") }
+    private let skipReport = AudioMixerReport { logger.info("audio-mixer: Skipping \($0) frames") }
+    private let stats = AudioMixerReport { logger.debug("audio-mixer: \($0) skips") }
+    private var graphAddress: Unmanaged<AudioMixerGraph>?
+    private var previousAddress: Unmanaged<AudioMixerGraph>?
+    private var needsGraphUpdate = false
+    private(set) var isTransitioning = false
 
-    func setSources(_ settings: [AudioMixerSourceSettings]) {
-        for source in sources where !settings.contains(where: source.isSame) {
-            source.remove()
+    private var graph: AudioMixerGraph? {
+        graphAddress?.takeUnretainedValue()
+    }
+
+    private var previousGraph: AudioMixerGraph? {
+        previousAddress?.takeUnretainedValue()
+    }
+
+    var latency: Int64 {
+        if needsGraphUpdate, let graph {
+            return max(renderedLatency, graph.targetLatency)
         }
-        for setting in settings {
-            if let source = sources.first(where: { $0.isSame(setting) }) {
-                source.update(settings: setting)
-            } else {
-                let startIndex = makeStartIndex(setting.bufferedAudio)
-                sources.append(AudioMixerSource(settings: setting, startIndex: startIndex))
+        return renderedLatency
+    }
+
+    init() {
+        prepareAudioMixerFades()
+        streamBus = AudioMixerBus()
+        recordingBus = AudioMixerBus()
+    }
+
+    func install(_ graph: AudioMixerGraph) {
+        if !needsGraphUpdate {
+            previousAddress = graphAddress
+        }
+        graphAddress = .passUnretained(graph)
+        needsGraphUpdate = true
+        isTransitioning = true
+    }
+
+    func reportStats() {
+        stats.record(numberOfSkips)
+        graph?.builtinInput?.audio.reportStats()
+        if let graph {
+            for input in graph.bufferedInputs.values {
+                input.audio.reportStats()
             }
         }
-        updateInputs()
     }
 
     func setStereo(_ stereo: Bool) {
@@ -397,20 +567,22 @@ final class AudioMixer {
     }
 
     func appendBuiltin(_ sampleBuffer: CMSampleBuffer, _ presentationTimeStamp: CMTime, delay: Double = 0) {
-        builtinInput?.append(sampleBuffer, presentationTimeStamp + CMTime(seconds: delay))
+        let input = graph?.builtinInput ?? previousGraph?.builtinInput
+        input?.append(sampleBuffer, presentationTimeStamp + CMTime(seconds: delay))
     }
 
     func appendBuffered(cameraId: UUID, _ sampleBuffer: CMSampleBuffer) {
-        bufferedInputs[cameraId]?.append(sampleBuffer, sampleBuffer.presentationTimeStamp)
+        (graph?.bufferedInputs[cameraId] ?? previousGraph?.bufferedInputs[cameraId])?
+            .append(sampleBuffer, sampleBuffer.presentationTimeStamp)
     }
 
     func capture(id: String, start: Int64, count: Int) -> Result<[Float], AudioMixerCaptureError> {
-        guard let source = sources.first(where: { $0.id == id && !$0.isRemoved }),
-              let input = input(source.bufferedAudio),
-              input.numberOfChannels > 0
+        guard let entry = graph?.entries.first(where: { $0.source.id == id }),
+              entry.input.audio.numberOfChannels > 0
         else {
             return .failure(.missing)
         }
+        let input = entry.input.audio
         guard input.writeIndex >= start + Int64(count) else {
             return .failure(.notReady)
         }
@@ -419,7 +591,12 @@ final class AudioMixer {
         }
         var samples = [Float](repeating: 0, count: count)
         samples.withUnsafeMutableBufferPointer {
-            input.read(channel: source.captureChannel(input), at: start, count: count, into: $0.baseAddress!)
+            input.read(
+                channel: entry.source.captureChannel(input),
+                at: start,
+                count: count,
+                into: $0.baseAddress!
+            )
         }
         return .success(samples)
     }
@@ -429,6 +606,9 @@ final class AudioMixer {
         buffer: AVAudioPCMBuffer,
         recordingBuffer: AVAudioPCMBuffer?
     )? {
+        guard let graph else {
+            return nil
+        }
         let frames = Int64(audioMixerFramesPerBlock)
         let due = makeAudioMixerIndex(now) - latency - frames
         var blockStart = nextBlockStart ?? due
@@ -436,14 +616,16 @@ final class AudioMixer {
             return nil
         }
         if due - blockStart > Int64(audioMixerSampleRate) {
-            logger.info("audio-mixer: Skipping \(due - blockStart) frames")
+            skipReport.record(Int(due - blockStart))
             numberOfSkips += 1
             blockStart = due
-            for source in sources {
-                source.reset()
+            streamBus.reset()
+            recordingBus.reset()
+            for entry in graph.entries {
+                entry.source.reset()
             }
         }
-        let recordingBuffer = render(blockStart)
+        let recordingBuffer = render(graph, blockStart)
         nextBlockStart = blockStart + frames
         let presentationTimeStamp = blockStart
         return (
@@ -453,19 +635,64 @@ final class AudioMixer {
         )
     }
 
-    private func render(_ blockStart: Int64) -> AVAudioPCMBuffer? {
-        if sources.contains(where: \.hasDifferentSends) {
+    private func render(_ graph: AudioMixerGraph, _ blockStart: Int64) -> AVAudioPCMBuffer? {
+        let previous = needsGraphUpdate ? previousGraph : nil
+        if needsGraphUpdate {
+            let config = graph.configuration
+            if let old = previous?.configuration.streamEffects, !old.isEmpty, old !== config.streamEffects {
+                recordingBlocks = 2
+            }
+            streamBus.setEffects(config.streamEffects)
+            recordingBus.setEffects(config.recordingEffects)
+        }
+        let wasRecordingRendered = recordingBlocks > 0
+        if !graph.configuration.streamEffects.isEmpty {
             recordingBlocks = 2
         }
-        let isRecordingRendered = recordingBlocks > 0
-        streamBus.clear()
-        if isRecordingRendered {
-            recordingBus.clear()
+        for entry in graph.entries where entry.source.hasDifferentSends(entry.prepared.settings.sends) {
+            recordingBlocks = 2
+            break
         }
-        for source in sources {
-            if let input = input(source.bufferedAudio) {
-                source.render(input, blockStart, streamBus, isRecordingRendered ? recordingBus : nil)
+        if let previous {
+            for index in graph.removed {
+                let entry = previous.entries[index]
+                if entry.source.hasDifferentSends(entry.prepared.settings.sends) {
+                    recordingBlocks = 2
+                    break
+                }
             }
+        }
+        let isRecordingRendered = recordingBlocks > 0
+        let recording = isRecordingRendered ? recordingBus : nil
+        streamBus.clear()
+        recording?.clear()
+        if let previous {
+            for index in graph.removed {
+                let entry = previous.entries[index]
+                entry.source.remove()
+                entry.source.render(entry.input.audio, blockStart, streamBus, recording)
+            }
+        }
+        var latency = graph.targetLatency
+        var pending = false
+        for entry in graph.entries {
+            let source = entry.source
+            if needsGraphUpdate {
+                source.update(entry.prepared)
+                if entry.isNew, entry.isSharedInput, let nextBlockStart {
+                    if let delay = entry.replacedDelay {
+                        source.startIndex = nextBlockStart - delay
+                    } else {
+                        source.startIndex = entry.input.startIndex
+                    }
+                }
+            }
+            source.render(entry.input.audio, blockStart, streamBus, recording)
+            latency = max(latency, audioMixerMinimumLatency + source.effectsLatency - source.delay)
+            pending = pending || source.hasPendingEffects
+        }
+        if isRecordingRendered, !wasRecordingRendered {
+            recordingBus.resumeHistory(from: streamBus)
         }
         streamBus.finish()
         if isRecordingRendered {
@@ -474,47 +701,13 @@ final class AudioMixer {
             recordingBus.skip()
         }
         recordingBlocks = max(recordingBlocks - 1, 0)
-        if sources.contains(where: \.isRemoved) {
-            sources.removeAll { $0.isRemoved }
-            updateInputs()
+        needsGraphUpdate = false
+        previousAddress = nil
+        isTransitioning = pending
+        if latency != renderedLatency {
+            latencyReport.record(Int(latency))
+            renderedLatency = latency
         }
         return isRecordingRendered ? recordingBus.buffer : nil
-    }
-
-    private func makeStartIndex(_ bufferedAudio: UUID?) -> Int64 {
-        guard let nextBlockStart, let input = input(bufferedAudio) else {
-            return .min
-        }
-        return sources
-            .filter { $0.isRemoved && $0.bufferedAudio == bufferedAudio }
-            .map { nextBlockStart - $0.delay }
-            .max() ?? input.writeIndex
-    }
-
-    private func input(_ bufferedAudio: UUID?) -> AudioMixerInput? {
-        if let bufferedAudio {
-            bufferedInputs[bufferedAudio]
-        } else {
-            builtinInput
-        }
-    }
-
-    private func updateInputs() {
-        if !sources.contains(where: { $0.bufferedAudio == nil }) {
-            builtinInput = nil
-        } else if builtinInput == nil {
-            builtinInput = AudioMixerInput(kind: .builtin)
-        }
-        bufferedInputs = bufferedInputs.filter { cameraId, _ in
-            sources.contains { $0.bufferedAudio == cameraId }
-        }
-        for case let cameraId? in sources.map(\.bufferedAudio) where bufferedInputs[cameraId] == nil {
-            bufferedInputs[cameraId] = AudioMixerInput(kind: .buffered)
-        }
-        let latency = minimumLatency + max(sources.map { $0.effectsLatency - $0.delay }.max() ?? 0, 0)
-        if latency != self.latency {
-            logger.debug("audio-mixer: Latency \(latency) frames")
-            self.latency = latency
-        }
     }
 }
