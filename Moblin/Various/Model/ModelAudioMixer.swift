@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 func isAudioMicMixable(mic: SettingsMicsMic, current: SettingsMicsMic) -> Bool {
     guard mic != current else {
@@ -26,6 +27,10 @@ func makeAudioChannelMicNames(portName: String, channelNames: [String?]) -> [Str
     return names
 }
 
+func isAudioMicAddable(mic: SettingsMicsMic, current: SettingsMicsMic) -> Bool {
+    mic.connected && !mic.mixed && isAudioMicMixable(mic: mic, current: current)
+}
+
 func makeAudioMixerMixedMics(mics: [SettingsMicsMic], current: SettingsMicsMic) -> [SettingsMicsMic] {
     mics.filter { $0.mixed && $0.connected && isAudioMicMixable(mic: $0, current: current) }
 }
@@ -43,6 +48,17 @@ func isAudioMicSwitchNeeded(current: SettingsMicsMic?,
     return !(current.channel != nil
         && highestPriority.channel == nil
         && current.inputUid == highestPriority.inputUid)
+}
+
+func makeMixerSources(currentId: String,
+                      mics: [SettingsMicsMic],
+                      mixed: [SettingsMicsMic]) -> [SettingsMicsMic]
+{
+    (mics.first { $0.id == currentId }.map { [$0] } ?? []) + mixed
+}
+
+func findMixerSource(id: String?, sources: [SettingsMicsMic]) -> SettingsMicsMic? {
+    sources.first { $0.id == id }
 }
 
 func isAudioChannelMicConnected(mic: SettingsMicsMic,
@@ -70,6 +86,10 @@ func makeMicDelayRange(audioMixer: Bool) -> ClosedRange<Double> {
     audioMixer ? -0.5 ... 2.0 : -0.5 ... 0.5
 }
 
+func makeAudioMixerSourceGain(mic: SettingsMicsMic) -> Float {
+    mic.muted ? 0 : pow(10, mic.gainDb / 20)
+}
+
 private func makeAudioMixerSends(output: SettingsMicsMicOutput) -> (stream: Float, recording: Float) {
     switch output {
     case .streamAndRecording:
@@ -78,6 +98,45 @@ private func makeAudioMixerSends(output: SettingsMicsMicOutput) -> (stream: Floa
         (1, 0)
     case .recording:
         (0, 1)
+    }
+}
+
+@MainActor
+class AudioMixerMeters {
+    let left = AudioLevel()
+    let right = AudioLevel()
+    private var sources: [String: AudioLevel] = [:]
+
+    func source(id: String) -> AudioLevel {
+        if let level = sources[id] {
+            return level
+        }
+        let level = AudioLevel()
+        sources[id] = level
+        return level
+    }
+
+    func outputs(stereo: Bool) -> [AudioLevel] {
+        stereo ? [left, right] : [left]
+    }
+
+    func update(levels: AudioMixerLevels, activeIds: Set<String>) {
+        sources = sources.filter { activeIds.contains($0.key) }
+        for (id, level) in sources {
+            setLevel(level, peak: levels.sources[id] ?? 0)
+        }
+        for (id, peak) in levels.sources where sources[id] == nil && activeIds.contains(id) {
+            setLevel(source(id: id), peak: peak)
+        }
+        setLevel(left, peak: levels.left)
+        setLevel(right, peak: levels.right)
+    }
+
+    private func setLevel(_ level: AudioLevel, peak: Float) {
+        let newLevel = peak > 0 ? 20 * log10(peak) : defaultAudioLevel
+        if level.level != newLevel {
+            level.level = newLevel
+        }
     }
 }
 
@@ -99,10 +158,6 @@ extension Model {
         }
     }
 
-    func isMicMixable(mic: SettingsMicsMic) -> Bool {
-        database.debug.audioMixer && isAudioMicMixable(mic: mic, current: self.mic.current)
-    }
-
     func setMicMixed(mic: SettingsMicsMic, mixed: Bool) {
         if mixed {
             mic.gainDb = makeMixedMicGainDb(mic: mic)
@@ -117,6 +172,11 @@ extension Model {
             stopRecorderIfNeeded(forceStop: true)
             startRecorderIfNeeded()
         }
+    }
+
+    func setMicMuted(mic: SettingsMicsMic, muted: Bool) {
+        mic.muted = muted
+        updateMixedMics()
     }
 
     func updateMixedMics() {
@@ -144,7 +204,7 @@ extension Model {
                                         bufferedAudio: bufferedAudio,
                                         channelsMap: makeAudioInputChannelsMap(),
                                         channel: mic.channel,
-                                        gain: pow(10, mic.gainDb / 20),
+                                        gain: makeAudioMixerSourceGain(mic: mic),
                                         delay: mic.delay.clamped(to: makeMicDelayRange(audioMixer: true)),
                                         voice: mic.processing == .voice,
                                         sends: makeAudioMixerSends(output: mic.output),

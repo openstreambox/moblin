@@ -192,4 +192,79 @@ struct ModelAudioMixerSuite {
             == ["Wireless microphone 1", "Wireless microphone 2"])
         #expect(makeNames(["Mic", "Mic"]) == ["Wireless microphone 1", "Wireless microphone 2"])
     }
+
+    @Test
+    func settingsPageFollowsTheCurrentMix() {
+        let main = SettingsMicsMic(name: "Camera", inputUid: "camera", connected: true)
+        let guest = SettingsMicsMic(name: "Guest", inputUid: "guest", connected: true)
+        let sources = makeMixerSources(currentId: main.id, mics: [usbMic, main], mixed: [guest])
+        #expect(findMixerSource(id: guest.id, sources: sources) === guest)
+        #expect(findMixerSource(id: main.id, sources: sources) === main)
+        #expect(findMixerSource(id: nil, sources: sources) == nil)
+        let afterDelete = makeMixerSources(currentId: main.id, mics: [usbMic], mixed: [guest])
+        #expect(findMixerSource(id: main.id, sources: afterDelete) == nil)
+        #expect(findMixerSource(id: guest.id, sources: afterDelete) === guest)
+    }
+
+    @Test
+    func deletedMainMicKeepsOtherSourcesAddable() {
+        let deleted = SettingsMicsMic(name: rtmpCamera(name: "Old"), inputUid: "old", connected: true)
+        let guest = SettingsMicsMic(name: rtmpCamera(name: "Guest"), inputUid: "guest", connected: true)
+        #expect(isAudioMicAddable(mic: guest, current: deleted))
+        #expect(!isAudioMicAddable(mic: frontMic, current: deleted))
+        guest.mixed = true
+        #expect(!isAudioMicAddable(mic: guest, current: deleted))
+        #expect(makeAudioMixerMixedMics(mics: [frontMic, guest], current: deleted) == [guest])
+    }
+
+    @Test
+    func deletedMainMicIsNotAMixerSource() {
+        let main = SettingsMicsMic(name: "Camera", inputUid: "camera", connected: true)
+        let sources = makeMixerSources(currentId: main.id, mics: [usbMic, main], mixed: [srtlaMic])
+        #expect(sources == [main, srtlaMic])
+        #expect(sources[0] === main)
+        #expect(makeMixerSources(currentId: main.id, mics: [usbMic], mixed: [srtlaMic]) == [srtlaMic])
+        #expect(makeMixerSources(currentId: main.id, mics: [usbMic], mixed: []).isEmpty)
+    }
+
+    @Test @MainActor
+    func meterSurvivesAnOlderLevelsSnapshot() {
+        let meters = AudioMixerMeters()
+        let old = meters.source(id: "old")
+        let new = meters.source(id: "new")
+        let older = AudioMixerLevels(sources: ["old": 0.5], left: 0, right: 0)
+        meters.update(levels: older, activeIds: ["new"])
+        #expect(meters.source(id: "new") === new)
+        #expect(meters.source(id: "old") !== old)
+        let next = AudioMixerLevels(sources: ["new": 0.5], left: 0, right: 0)
+        meters.update(levels: next, activeIds: ["new"])
+        #expect(abs(new.level - 20 * log10(0.5)) < 0.001)
+    }
+
+    @Test @MainActor
+    func monoMixHasOneOutputMeter() {
+        let meters = AudioMixerMeters()
+        let mono = meters.outputs(stereo: false)
+        let stereo = meters.outputs(stereo: true)
+        #expect(mono.count == 1 && mono[0] === meters.left)
+        #expect(stereo.count == 2 && stereo[0] === meters.left && stereo[1] === meters.right)
+        meters.update(levels: AudioMixerLevels(sources: [:], left: 0.25, right: 0.5), activeIds: [])
+        #expect(abs(meters.left.level - 20 * log10(0.25)) < 0.001)
+        #expect(abs(meters.right.level - 20 * log10(0.5)) < 0.001)
+        meters.update(levels: AudioMixerLevels(sources: [:], left: 0, right: 0), activeIds: [])
+        #expect(meters.left.level == defaultAudioLevel)
+        #expect(meters.right.level == defaultAudioLevel)
+    }
+
+    @Test
+    func mutedMicHasNoGain() {
+        let mic = SettingsMicsMic(name: "Mic", inputUid: "Mic", connected: true)
+        mic.gainDb = -6
+        #expect(abs(makeAudioMixerSourceGain(mic: mic) - 0.501) < 0.001)
+        mic.muted = true
+        #expect(makeAudioMixerSourceGain(mic: mic) == 0)
+        mic.gainDb = 0
+        mic.muted = false
+        #expect(makeAudioMixerSourceGain(mic: mic) == 1)
+    }
 }

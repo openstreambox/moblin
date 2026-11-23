@@ -74,7 +74,7 @@ private struct AudioSyncResultView: View {
     }
 }
 
-private struct AudioSyncView: View {
+struct AudioSyncView: View {
     let model: Model
     @ObservedObject var audioSync: AudioSync
 
